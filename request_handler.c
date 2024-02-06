@@ -31,6 +31,14 @@
     "Content-Length: 0\r\n"           \
     "\r\n"                            \
 
+#define NOTFOUND                      \
+    "HTTP/1.1 404 Not found\r\n"      \
+    "Connection: close\r\n"           \
+    "Content-type: text/plain\r\n"    \
+    "Content-Length: 0\r\n"           \
+    "\r\n"                            \
+
+
 #define OK_TRANSACAO                  \
     "HTTP/1.1 200 OK\r\n"             \
     "Connection: close\r\n"           \
@@ -124,6 +132,12 @@ void request_handler(ReqRes *req) {
         return;
     }
 
+    // We know that any client greater than 6 exists. So, we hardcoded.
+    if (id >= 6){
+        SET_STATIC_RESPONSE(req->buffer, NOTFOUND);
+        return;
+    }
+
     if (matched_index == 0 && method == POST) {
         transacoes(id, req->buffer, nparsed);
     } else if (matched_index == 1 && method == GET) {
@@ -155,12 +169,12 @@ static void transacoes(uint64_t id, char* buffer, int buffer_loc) {
     }
 
     const cJSON *valor = cJSON_GetObjectItemCaseSensitive(transacao_json, "valor");
-    if (!cJSON_IsNumber(valor)){
+    if (!cJSON_IsNumber(valor) || (transacao_json->valuedouble < 0.0)){
         cJSON_Delete(transacao_json);
         SET_STATIC_RESPONSE(buffer, BADREQUEST);
         return; 
     }
-    transacao.valor =  cJSON_GetNumberValue(valor);
+    transacao.valor = cJSON_GetNumberValue(valor);
     
     const cJSON *tipo = cJSON_GetObjectItemCaseSensitive(transacao_json, "tipo");
     if (!cJSON_IsString(tipo)           ||
