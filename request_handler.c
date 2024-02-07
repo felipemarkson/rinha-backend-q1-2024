@@ -2,6 +2,7 @@
 #include <regex.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <libpq-fe.h>
 
 #include "picohttpparser/picohttpparser.h"
 #include "cJSON/cJSON.h"
@@ -38,14 +39,21 @@
     "Content-Length: 0\r\n"           \
     "\r\n"                            \
 
+#define UNPROCESSABLE                       \
+    "HTTP/1.1 422 Unprocessable Entity\r\n" \
+    "Connection: close\r\n"                 \
+    "Content-type: text/plain\r\n"          \
+    "Content-Length: 0\r\n"                 \
+    "\r\n"                                  \
+
 
 #define OK_TRANSACAO                  \
     "HTTP/1.1 200 OK\r\n"             \
     "Connection: close\r\n"           \
     "Content-type: text/plain\r\n"    \
-    "Content-Length: 12\r\n"          \
+    "Content-Length: %ld\r\n"         \
     "\r\n"                            \
-    "transacoes\r\n"                  \
+    "%s\n"                            \
 
 #define OK_EXTRATO                    \
     "HTTP/1.1 200 OK\r\n"             \
@@ -169,18 +177,21 @@ static void transacoes(uint64_t id, char* buffer, int buffer_loc) {
     }
 
     const cJSON *valor = cJSON_GetObjectItemCaseSensitive(transacao_json, "valor");
-    if (!cJSON_IsNumber(valor) || (transacao_json->valuedouble < 0.0)){
+    if (!cJSON_IsNumber(valor)              ||
+        transacao_json->valuedouble < 0.0   ||
+        cJSON_GetNumberValue(valor) > (double)__INT64_MAX__)
+    {
         cJSON_Delete(transacao_json);
         SET_STATIC_RESPONSE(buffer, BADREQUEST);
         return; 
     }
-    transacao.valor = cJSON_GetNumberValue(valor);
-    
+    transacao.valor = (int64_t)cJSON_GetNumberValue(valor);
+
     const cJSON *tipo = cJSON_GetObjectItemCaseSensitive(transacao_json, "tipo");
     if (!cJSON_IsString(tipo)           ||
         tipo->valuestring == NULL       ||
         strlen(tipo->valuestring) != 1  ||
-        (tipo->valuestring[0] != 'c' && tipo->valuestring[0] != 'v'))
+        (tipo->valuestring[0] != 'c' && tipo->valuestring[0] != 'd'))
     {
         cJSON_Delete(transacao_json);
         SET_STATIC_RESPONSE(buffer, BADREQUEST);
@@ -201,6 +212,64 @@ static void transacoes(uint64_t id, char* buffer, int buffer_loc) {
     LOG("Transação (%lu) {valor: %ld, tipo: %c, descricao: \"%.10s\"}\n",
             id, transacao.valor, transacao.tipo, transacao.descricao);
 
-    SET_STATIC_RESPONSE(buffer, OK_TRANSACAO);
+    const char *conn_kws[]  = {"host",      "dbname",  "user",      "password", NULL};
+    const char *conn_vals[] = {"localhost", "user_db", "user_user", "user_pwd", NULL};
+    PGconn *conn = PQconnectdbParams(conn_kws, conn_vals, 0);
+    if (PQstatus(conn) != CONNECTION_OK){
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        LOG("Connection failed: %s", PQerrorMessage(conn));
+        PQfinish(conn);
+        return;
+    }
 
+    // Here, we reserve enough memory for build the command. Doing by PQexecParams is 
+    // terrible.
+    //                        __UINT64_MAX__         __INT64_MAX__
+    // SELECT push_credito(18446744073709551615::int, 9223372036854775807::int, $1::varchar(10))
+    char command_buffer[100] = {0};
+    if (transacao.tipo == 'c')
+        snprintf(command_buffer, 100, "SELECT push_credito(%lu::int, %ld::int, $1::varchar(10))", id, transacao.valor);
+    else
+        snprintf(command_buffer, 100, "SELECT push_debito(%lu::int, %ld::int, $1::varchar(10))", id, transacao.valor);
+    LOG("Calling: %s\n", command_buffer);
+
+    const char *paramVals[] = {transacao.descricao};
+    PGresult * res = PQexecParams(conn, command_buffer, 1, NULL, paramVals, NULL, NULL, 0);
+    ExecStatusType result = PQresultStatus(res);
+    if (result != PGRES_TUPLES_OK) {
+        LOG("SELECT failed: %s\n", PQerrorMessage(conn));
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+
+    // If DB function retuns NULL, it is a fail!
+    if (PQgetisnull(res, 0, 0)) {
+        LOG("%s\n","INVALID TRANSACTION!!!");
+        SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+
+    // Validations
+    if (PQntuples(res) != 1){
+        LOG("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+    if(PQnfields(res) != 1){
+        LOG("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+    char* db_ret =  PQgetvalue(res, 0, 0);
+    LOG("%s\n", db_ret);
+    snprintf(buffer, MAX_REQ_RESP_SIZE, OK_TRANSACAO, strlen(db_ret) + 1, db_ret);
+    PQclear(res);
 }

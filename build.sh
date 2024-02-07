@@ -7,4 +7,4 @@ gcc -IcJSON -O3 -o objs/cJSON.o -c cJSON/cJSON.c
 $COMPILE_DBG -o objs/server.o -c server.c
 $COMPILE_DBG -o objs/request_handler.o -c request_handler.c
 $COMPILE_DBG -o objs/main.o -c main.c
-$COMPILE_DBG objs/*.o -o main -luring -lbsd
+$COMPILE_DBG objs/*.o -o main -luring -lbsd -lpq

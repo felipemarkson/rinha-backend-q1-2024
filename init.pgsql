@@ -34,46 +34,72 @@ END;
 $$;
 
 
-CREATE OR REPLACE PROCEDURE push_credito(
+CREATE OR REPLACE FUNCTION push_credito(
     cliente_id_in INTEGER,
     valor_in INTEGER,
     descricao_in VARCHAR(10)
 )
+RETURNS json
 LANGUAGE plpgsql
 AS $$
+DECLARE 
+  ret json;
 BEGIN
-    SELECT id FROM clientes WHERE id = cliente_id_in;
+    UPDATE saldos SET valor = valor + valor_in WHERE cliente_id = cliente_id_in;
     IF NOT FOUND THEN
-        RAISE 'INVALID CLIENT ID';
+        ret := NULL;
+        RETURN ret;
     END IF;
 
-    UPDATE saldos SET valor = valor + valor_in WHERE cliente_id = cliente_id_in;
-    INSERT INTO transacoes(cliente_id, valor, tipo, descricao) VALUES (cliente_id_in, valor_in, 'c' ,descricao_in);
+    INSERT INTO transacoes(cliente_id, valor, tipo, descricao)
+        VALUES (cliente_id_in, valor_in, 'c' ,descricao_in);
 
-    COMMIT;
+    SELECT to_json(rw) FROM (
+        SELECT limite, saldos.valor as saldo
+            FROM clientes
+                INNER JOIN saldos ON clientes.id = saldos.cliente_id
+            WHERE clientes.id = cliente_id_in
+            LIMIT 1
+    ) rw
+        INTO ret;
+
+    RETURN ret;
 END
 $$;
 
-CREATE OR REPLACE PROCEDURE push_debito(
-    cliente_id_in INTEGER,
-    valor_in INTEGER,
-    descricao_in VARCHAR(10)
+CREATE OR REPLACE FUNCTION push_debito(
+    cliente_id_in int,
+    valor_in int,
+    descricao_in varchar(10)
 )
+RETURNS json
 LANGUAGE plpgsql
 AS $$
+DECLARE 
+  ret json;
 BEGIN
     UPDATE saldos SET valor = (valor - valor_in)
         WHERE cliente_id = cliente_id_in
             AND (valor - valor_in) > - (
-                SELECT limite FROM clientes WHERE id = cliente_id_in
+                SELECT limite FROM clientes WHERE id = cliente_id_in LIMIT 1
             );
     IF NOT FOUND THEN
-        RAISE 'INVALID DEBIT';
+        ret := NULL;
+        RETURN ret;
     END IF;
 
     INSERT INTO transacoes(cliente_id, valor, tipo, descricao)
         VALUES (cliente_id_in, valor_in, 'd' ,descricao_in);
 
-    COMMIT;
+    SELECT to_json(rw) FROM (
+        SELECT limite, saldos.valor as saldo
+            FROM clientes
+                INNER JOIN saldos ON clientes.id = saldos.cliente_id
+            WHERE clientes.id = cliente_id_in
+            LIMIT 1
+    ) rw
+        INTO ret;
+
+    RETURN ret;
 END
 $$;
