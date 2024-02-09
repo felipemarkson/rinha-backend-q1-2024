@@ -1,0 +1,5 @@
+main
+maind
+.vscode/*
+objs/*.o
+test_*

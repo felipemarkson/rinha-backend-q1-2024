@@ -1,8 +1,13 @@
-#include <bsd/string.h>
+#include <string.h>
 #include <regex.h>
 #include <stdio.h>
 #include <stdint.h>
+
+#ifdef DOCKER
+#include <postgresql/libpq-fe.h>
+#else
 #include <libpq-fe.h>
+#endif
 
 #include "picohttpparser/picohttpparser.h"
 #include "cJSON/cJSON.h"
@@ -69,8 +74,15 @@ static const char *res[] = {
     "\\/clientes\\/[0-9]+\\/extrato"
 };
 
-static const char *conn_kws[]  = {"host",      "dbname",  "user",      "password", NULL};
-static const char *conn_vals[] = {"localhost", "user_db", "user_user", "user_pwd", NULL};
+#ifdef DOCKER
+    #define DB_HOST "postgres"
+#else
+    #define DB_HOST "localhost"
+#endif
+
+
+static const char *conn_kws[]  = {"host",  "dbname",  "user",      "password", NULL};
+static const char *conn_vals[] = {DB_HOST, "user_db", "user_user", "user_pwd", NULL};
 
 typedef enum method_t { GET, POST } Method;
 
@@ -118,6 +130,7 @@ void request_handler(ReqRes *req) {
         regex_t regex;
         if (regcomp(&regex, res[i], REG_EXTENDED | REG_NEWLINE | REG_ICASE)) {
             SET_STATIC_RESPONSE(req->buffer, INTERNALERROR);
+            regfree(&regex);
             return;
         }
         if (regexec(&regex, uri, 1, pmatch, 0) == 0) {
@@ -127,6 +140,7 @@ void request_handler(ReqRes *req) {
                 return;
             }
             matched_index = i;
+            continue;
         }
         regfree(&regex);
     }

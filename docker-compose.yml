@@ -25,3 +25,22 @@ services:
         condition: service_healthy
     ports:
       - 8080:8080
+
+  api01: &api
+    build: .
+    security_opt:
+      # By default, Docker team do not allow Linux's io_uring because some vunerabilites
+      # was found in the past.
+      # See (https://github.com/moby/moby/pull/46762) for more information.
+      # However, it is safe to use in a webserver enviroment since if some one can
+      # access your server to run another process inside this container, you had been
+      # pwned anyway. I felt that Docker team was over conservative in this decision.
+      # Docker is a development and sysadmin tool and should had an easiest way to
+      # enable Linux's io_uring.
+      - seccomp:io_uring_seccomp.json 
+    hostname: api01
+    ports:
+      - "9999:5555"
+    depends_on:
+      postgres:
+        condition: service_healthy

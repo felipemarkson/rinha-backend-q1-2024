@@ -14,11 +14,11 @@
         exit(1);                                                       \
     } while (0)
 
-#define FATAL_IO(err_io)                                                  \
-    do {                                                                  \
-        fprintf(stderr, "FATAL IO IN %s:%d -> %s \n", __FILE__, __LINE__, \
-                strerror(-(int)(err_io)));                                \
-        exit(1);                                                          \
+#define FATAL_IO(err_io)                                                        \
+    do {                                                                        \
+        fprintf(stderr, "FATAL IO IN %s:%d -> (%d): %s \n", __FILE__, __LINE__, \
+                -(int)(err_io), strerror(-(int)(err_io)));                      \
+        exit(1);                                                                \
     } while (0)
 
 static struct io_uring ring = {0};
@@ -113,8 +113,13 @@ void server_loop(RequestHandler handler) {
     while (1) {
         int ret;
         struct io_uring_cqe *cqe = NULL;
-        if((ret = io_uring_wait_cqe(&ring, &cqe)) != 0)
-            FATAL_IO(ret);
+        ret = io_uring_wait_cqe(&ring, &cqe);
+        if (ret != 0){
+            if (ret != -4) // gdb interruped
+                FATAL_IO(ret);
+            else
+                continue;
+        }
         int result = cqe->res;
 
         ReqRes *req = (ReqRes *)cqe->user_data;
@@ -167,7 +172,7 @@ int server(RequestHandler handler) {
     init_server_fd(DEFAULT_SERVER_PORT);
     if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL_SYS();
     int ret;
-    if ((ret = -io_uring_queue_init(QUEUE_DEPTH, &ring, 0)) != 0) FATAL_IO(ret);
+    if ((ret = io_uring_queue_init(QUEUE_DEPTH, &ring, 0)) != 0) FATAL_IO(ret);
     server_loop(handler);
     return 0;
 }
