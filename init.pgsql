@@ -103,3 +103,40 @@ BEGIN
     RETURN ret;
 END
 $$;
+
+
+CREATE OR REPLACE FUNCTION get_extrato(
+    cliente_id_in int
+)
+RETURNS json
+LANGUAGE plpgsql
+AS $$
+DECLARE 
+  ret json;
+BEGIN
+        SELECT json_build_object (
+            'saldo',                (SELECT to_json(sld) FROM (
+                                        SELECT saldos.valor AS total, LOCALTIMESTAMP AS data_extrato, limite
+                                            FROM clientes
+                                                INNER JOIN saldos ON clientes.id = saldos.cliente_id
+                                            WHERE clientes.id = cliente_id_in
+                                            LIMIT 1)
+                                        sld),
+
+            'ultimas_transacoes',   (SELECT coalesce(json_agg(tr), '[]'::json) FROM
+                                        (SELECT valor, tipo, descricao, realizada_em
+                                            FROM transacoes WHERE cliente_id = cliente_id_in
+                                            ORDER BY realizada_em DESC
+                                            LIMIT 10)
+                                        tr)
+        ) INTO ret;        
+    
+        IF NOT FOUND THEN
+            ret := NULL;
+            RETURN ret;
+        END IF;
+
+    RETURN ret;
+
+END
+$$;

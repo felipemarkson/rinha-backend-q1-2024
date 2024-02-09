@@ -59,9 +59,9 @@
     "HTTP/1.1 200 OK\r\n"             \
     "Connection: close\r\n"           \
     "Content-type: text/plain\r\n"    \
-    "Content-Length: 9\r\n"           \
+    "Content-Length: %ld\r\n"         \
     "\r\n"                            \
-    "extrato\r\n"                     \
+    "%s\n"                            \
 
 
 static const char *res[] = {
@@ -69,13 +69,16 @@ static const char *res[] = {
     "\\/clientes\\/[0-9]+\\/extrato"
 };
 
+static const char *conn_kws[]  = {"host",      "dbname",  "user",      "password", NULL};
+static const char *conn_vals[] = {"localhost", "user_db", "user_user", "user_pwd", NULL};
+
 typedef enum method_t { GET, POST } Method;
 
 static int map_method(const char *method, Method *out) {
-    if (strnstr(method, "GET", 3) != NULL) {
+    if (strstr(method, "GET") == method) {
         out = GET;
         return 0;
-    } else if (strnstr(method, "POST", 4) != NULL) {
+    } else if (strstr(method, "POST") == method) {
         *out = POST;
         return 0;
     }
@@ -84,6 +87,7 @@ static int map_method(const char *method, Method *out) {
 }
 
 static void transacoes(uint64_t id, char* buffer, int body_loc);
+static void extrato(uint64_t id, char* buffer);
 
 void request_handler(ReqRes *req) {
     const char *method_str = NULL;
@@ -149,7 +153,7 @@ void request_handler(ReqRes *req) {
     if (matched_index == 0 && method == POST) {
         transacoes(id, req->buffer, nparsed);
     } else if (matched_index == 1 && method == GET) {
-        SET_STATIC_RESPONSE(req->buffer, OK_EXTRATO);
+        extrato(id, req->buffer);
     } else {
         SET_STATIC_RESPONSE(req->buffer, BADREQUEST);
     }
@@ -161,14 +165,9 @@ typedef struct transacao_t{
     char descricao[10];
 } Transacao;
 
-typedef struct saldo_t{
-    int64_t limite;
-    int64_t saldo;
-} Saldo;
-
-static void transacoes(uint64_t id, char* buffer, int buffer_loc) {
+static void transacoes(uint64_t id, char* buffer, int body_loc) {
     Transacao transacao = {0};
-    cJSON *transacao_json = cJSON_Parse(buffer + buffer_loc);
+    cJSON *transacao_json = cJSON_Parse(buffer + body_loc);
     if (transacao_json == NULL){
         // cJSON do not report memory allocation fails. 
         // Thus, we will consider all errors as a client error.
@@ -212,8 +211,6 @@ static void transacoes(uint64_t id, char* buffer, int buffer_loc) {
     LOG("Transação (%lu) {valor: %ld, tipo: %c, descricao: \"%.10s\"}\n",
             id, transacao.valor, transacao.tipo, transacao.descricao);
 
-    const char *conn_kws[]  = {"host",      "dbname",  "user",      "password", NULL};
-    const char *conn_vals[] = {"localhost", "user_db", "user_user", "user_pwd", NULL};
     PGconn *conn = PQconnectdbParams(conn_kws, conn_vals, 0);
     if (PQstatus(conn) != CONNECTION_OK){
         SET_STATIC_RESPONSE(buffer, INTERNALERROR);
@@ -272,4 +269,62 @@ static void transacoes(uint64_t id, char* buffer, int buffer_loc) {
     LOG("%s\n", db_ret);
     snprintf(buffer, MAX_REQ_RESP_SIZE, OK_TRANSACAO, strlen(db_ret) + 1, db_ret);
     PQclear(res);
+    PQfinish(conn);
+}
+
+
+static void extrato(uint64_t id, char* buffer) {
+    PGconn *conn = PQconnectdbParams(conn_kws, conn_vals, 0);
+    if (PQstatus(conn) != CONNECTION_OK){
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        LOG("Connection failed: %s", PQerrorMessage(conn));
+        PQfinish(conn);
+        return;
+    }
+    // Here, we reserve enough memory for build the command. Doing by PQexecParams is 
+    // terrible.
+    //                        __UINT64_MAX__
+    // SELECT get_extrato(18446744073709551615::int)
+    char command_buffer[50] = {0};
+    snprintf(command_buffer, 50, "SELECT get_extrato(%lu::int)", id);
+
+    PGresult * res = PQexec(conn, command_buffer);
+    ExecStatusType result = PQresultStatus(res);
+    if (result != PGRES_TUPLES_OK) {
+        LOG("SELECT failed: %s\n", PQerrorMessage(conn));
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+
+    // If DB function retuns NULL, it is a fail! But here we should not FAIL.
+    if (PQgetisnull(res, 0, 0)) {
+        LOG("%s\n","INTERNAL ERROR!");
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+
+    // Validations
+    if (PQntuples(res) != 1){
+        LOG("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+    if(PQnfields(res) != 1){
+        LOG("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
+        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        PQclear(res);
+        PQfinish(conn);
+        return;
+    }
+    char* db_ret =  PQgetvalue(res, 0, 0);
+    LOG("%s\n", db_ret);
+    snprintf(buffer, MAX_REQ_RESP_SIZE, OK_EXTRATO, strlen(db_ret) + 1, db_ret);
+    PQclear(res);
+    PQfinish(conn);
 }
