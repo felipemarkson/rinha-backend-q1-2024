@@ -3,3 +3,5 @@ maind
 .vscode/*
 objs/*.o
 test_*
+gatling/*
+load-test/*

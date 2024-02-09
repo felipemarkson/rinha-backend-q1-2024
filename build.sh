@@ -1,10 +1,12 @@
 set -x
 COMPILE_DBG="gcc -D_POSIX_C_SOURCE=200809L -O0 -ggdb -std=c99 -Wall -Wextra -Wswitch-enum -pedantic"
-COMPILE="gcc -D_POSIX_C_SOURCE=200809L -O3 -g0"
+COMPILE="gcc -DLOG(...) -D_POSIX_C_SOURCE=200809L -O3 -g0"
 if [[ "true" == "${DOCKER}" ]]; then
     COMPILE="$COMPILE -DDOCKER"
     COMPILE_DBG="$COMPILE_DBG -DDOCKER"
 fi
+
+rm -f objs/*.o
 
 gcc -Ipicoparser -O3 -o objs/picohttpparser.o -c picohttpparser/picohttpparser.c
 gcc -IcJSON -O3 -o objs/cJSON.o -c cJSON/cJSON.c

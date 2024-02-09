@@ -2,4 +2,5 @@ main
 maind
 .vscode/*
 objs/*
-
+gatling/*
+load-test/user-files/results/*

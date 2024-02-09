@@ -1,8 +1,8 @@
 #include <netinet/in.h>
 
 #define DEFAULT_SERVER_PORT 5555
-#define QUEUE_DEPTH 4096
-#define MAX_CONN 4096
+// #define QUEUE_DEPTH 4294967296
+// #define MAX_CONN 4294967296
 #define MAX_REQ_RESP_SIZE 4096
 #define SIZE_ARRAY(static_array) sizeof(static_array) / sizeof(*(static_array))
 #ifndef LOG

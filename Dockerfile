@@ -10,5 +10,5 @@ RUN ./build.sh
 
 FROM builder as runner
 EXPOSE 5555
-COPY --from=builder /code/maind /bin/backend
+COPY --from=builder /code/main /bin/backend
 ENTRYPOINT ["backend"]

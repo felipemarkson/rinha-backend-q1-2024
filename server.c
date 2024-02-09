@@ -33,7 +33,7 @@ static void init_server_fd(int port) {
         FATAL_SYS();
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
         FATAL_SYS();
-    if (listen(server_fd, MAX_CONN) < 0) FATAL_SYS();
+    if (listen(server_fd, SOMAXCONN) < 0) FATAL_SYS();
 }
 
 static int push_accepting(void){
@@ -172,7 +172,7 @@ int server(RequestHandler handler) {
     init_server_fd(DEFAULT_SERVER_PORT);
     if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL_SYS();
     int ret;
-    if ((ret = io_uring_queue_init(QUEUE_DEPTH, &ring, 0)) != 0) FATAL_IO(ret);
+    if ((ret = io_uring_queue_init(SOMAXCONN, &ring, 0)) != 0) FATAL_IO(ret);
     server_loop(handler);
     return 0;
 }

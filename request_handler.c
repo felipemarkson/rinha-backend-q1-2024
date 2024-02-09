@@ -2,6 +2,7 @@
 #include <regex.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <math.h>
 
 #ifdef DOCKER
 #include <postgresql/libpq-fe.h>
@@ -46,6 +47,8 @@
 
 #define UNPROCESSABLE                       \
     "HTTP/1.1 422 Unprocessable Entity\r\n" \
+    "File: " __FILE__     "\r\n"            \
+    "Line: " LINE_STRING  "\r\n"            \
     "Connection: close\r\n"                 \
     "Content-type: text/plain\r\n"          \
     "Content-Length: 0\r\n"                 \
@@ -109,17 +112,17 @@ void request_handler(ReqRes *req) {
     struct phr_header headers[100];
     size_t num_headers = SIZE_ARRAY(headers);
     size_t method_len, uri_len;
-    int nparsed = phr_parse_request(buff, MAX_CONN, &method_str, &method_len, &uri,
+    int nparsed = phr_parse_request(buff, MAX_REQ_RESP_SIZE, &method_str, &method_len, &uri,
                                     &uri_len, &minor_version, headers, &num_headers, 0);
     if (nparsed < 0) {
-        SET_STATIC_RESPONSE(req->buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(req->buffer, UNPROCESSABLE);
         return;
     }
 
     // Method validation
     Method method = GET;
     if (map_method(method_str, &method) < 0) {
-        SET_STATIC_RESPONSE(req->buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(req->buffer, UNPROCESSABLE);
         return;
     }
 
@@ -136,7 +139,7 @@ void request_handler(ReqRes *req) {
         if (regexec(&regex, uri, 1, pmatch, 0) == 0) {
             regfree(&regex);
             if (matched_index > 0) {  // More than one match.
-                SET_STATIC_RESPONSE(req->buffer, BADREQUEST);
+                SET_STATIC_RESPONSE(req->buffer, UNPROCESSABLE);
                 return;
             }
             matched_index = i;
@@ -145,7 +148,7 @@ void request_handler(ReqRes *req) {
         regfree(&regex);
     }
     if (matched_index < 0) {  // Not found
-        SET_STATIC_RESPONSE(req->buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(req->buffer, UNPROCESSABLE);
         return;
     }
 
@@ -154,7 +157,7 @@ void request_handler(ReqRes *req) {
     uint64_t id;
     if (sscanf(uri, "/clientes/%lu", &id) != 1) {
         // We pass the validation, we should be able to get the id.
-        SET_STATIC_RESPONSE(req->buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(req->buffer, UNPROCESSABLE);
         return;
     }
 
@@ -169,7 +172,7 @@ void request_handler(ReqRes *req) {
     } else if (matched_index == 1 && method == GET) {
         extrato(id, req->buffer);
     } else {
-        SET_STATIC_RESPONSE(req->buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(req->buffer, UNPROCESSABLE);
     }
 }
 
@@ -185,17 +188,19 @@ static void transacoes(uint64_t id, char* buffer, int body_loc) {
     if (transacao_json == NULL){
         // cJSON do not report memory allocation fails. 
         // Thus, we will consider all errors as a client error.
-        SET_STATIC_RESPONSE(buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
         return;   
     }
 
     const cJSON *valor = cJSON_GetObjectItemCaseSensitive(transacao_json, "valor");
-    if (!cJSON_IsNumber(valor)              ||
-        transacao_json->valuedouble < 0.0   ||
+    double intpart;
+    if (!cJSON_IsNumber(valor)                             ||
+        valor->valuedouble < 0.0                  ||
+        modf(valor->valuedouble, &intpart) != 0.0 ||
         cJSON_GetNumberValue(valor) > (double)__INT64_MAX__)
     {
         cJSON_Delete(transacao_json);
-        SET_STATIC_RESPONSE(buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
         return; 
     }
     transacao.valor = (int64_t)cJSON_GetNumberValue(valor);
@@ -207,18 +212,19 @@ static void transacoes(uint64_t id, char* buffer, int body_loc) {
         (tipo->valuestring[0] != 'c' && tipo->valuestring[0] != 'd'))
     {
         cJSON_Delete(transacao_json);
-        SET_STATIC_RESPONSE(buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
         return; 
     }
     transacao.tipo = tipo->valuestring[0];
 
     const cJSON *descricao = cJSON_GetObjectItemCaseSensitive(transacao_json, "descricao");
-    if (!cJSON_IsString(descricao)      ||
-        descricao->valuestring == NULL  ||
-        strlen(descricao->valuestring) > 10 )
+    if (!cJSON_IsString(descricao)          ||
+        descricao->valuestring == NULL      ||
+        strlen(descricao->valuestring) > 10 ||
+        strlen(descricao->valuestring) < 1 )
     {
         cJSON_Delete(transacao_json);
-        SET_STATIC_RESPONSE(buffer, BADREQUEST);
+        SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
         return; 
     }
     memcpy(transacao.descricao, descricao->valuestring, strlen(descricao->valuestring));
