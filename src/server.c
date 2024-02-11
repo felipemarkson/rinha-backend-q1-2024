@@ -23,6 +23,23 @@
 
 static struct io_uring ring = {0};
 static int server_fd = 0;
+#define REQRES_ARENA_SIZE 16384
+static ReqRes REQRES_ARENA[REQRES_ARENA_SIZE] = {0};
+
+ReqRes* init_reqres(){
+    int i;
+    for (i = 0; i < REQRES_ARENA_SIZE; i++)
+       if (REQRES_ARENA[i].ring == NULL)
+            break;
+
+    if (REQRES_ARENA[i].ring != NULL) // NOT FOUND
+        FATAL_SYS();
+    REQRES_ARENA[i].ring = &ring;
+    return REQRES_ARENA + i;
+}
+static void deinit_reqres(ReqRes *req){
+    memset(req, 0, sizeof(ReqRes));
+}
 
 static void init_server_fd(int port) {
     int reuse_addr = 1;
@@ -36,9 +53,8 @@ static void init_server_fd(int port) {
     if (listen(server_fd, SOMAXCONN) < 0) FATAL_SYS();
 }
 
-static int push_accepting(void){
-    ReqRes *req = calloc(1, sizeof(ReqRes));
-    req->ring = &ring;
+static int push_accepting(ReqRes **out){
+    ReqRes *req = init_reqres();
     if(req == NULL)
         FATAL_SYS(); // Memory error, just dying...
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
@@ -52,6 +68,8 @@ static int push_accepting(void){
         fprintf(stderr, "ERROR: Could not accept the request: %s\n", strerror(-ret));
         return -1;
     }
+    if (out != NULL)
+        *out = req;
     return 0;
 }
 
@@ -99,14 +117,15 @@ static int push_close_connection(ReqRes *req){
     return 0;
 }
 
-static void deinit_request(ReqRes **req){
-    if(*req == NULL) return;
-    free(*req);
-    *req = NULL;
+static int push_db_responding(ReqRes *req){
+    (void)req;
+    // TODO
+
+    return 0;
 }
 
-void server_loop(RequestHandler handler) {
-    if (push_accepting() < 0)
+void server_loop(Controller handler) {
+    if (push_accepting(NULL) < 0)
         exit(1);
 
     printf("Listening in %d\n", DEFAULT_SERVER_PORT);
@@ -121,7 +140,6 @@ void server_loop(RequestHandler handler) {
                 continue;
         }
         int result = cqe->res;
-
         ReqRes *req = (ReqRes *)cqe->user_data;
         if (result < 0) {
             fprintf(stderr, "ERROR: Could not process the last event (%d): %s\n", req->last_event, strerror(-result));
@@ -132,12 +150,19 @@ void server_loop(RequestHandler handler) {
             case EVENT_ACCEPTTING: {
                 LOG("%s", "The server had accepted a connection!\n");
                 (void)push_reading(req, result);
-                (void)push_accepting(); // We add a new accepting for the next request.
+                (void)push_accepting(NULL); // We add a new accepting for the next request.
                 break;
             }
             case EVENT_READING: {
                 LOG("%s", "The server had read data from the connection!\n");
                 handler(req);
+                if (req->db_conn == NULL)
+                    push_writing(req);
+                else
+                    push_db_responding(req);
+                break;
+            }
+            case EVENT_DB_RESPONDING: {
                 push_writing(req);
                 break;
             }
@@ -148,7 +173,7 @@ void server_loop(RequestHandler handler) {
             }
             case EVENT_CLOSING: {
                 LOG("%s", "The server had close the connection!\n");
-                deinit_request(&req);
+                deinit_reqres(req);
                 break;
             }
             default: {
@@ -157,6 +182,13 @@ void server_loop(RequestHandler handler) {
             }
         }
         io_uring_cqe_seen(&ring, cqe);
+        if (req->to_exit){
+            write(req->client_fd, req->buffer, strlen(req->buffer));
+            for (size_t i = 0; i < REQRES_ARENA_SIZE; i++)
+                close(REQRES_ARENA[i].client_fd);
+            io_uring_queue_exit(&ring);
+            exit(0);
+        }
     }
 }
 
@@ -168,7 +200,7 @@ static void sigint_handler(int signo) {
     exit(0);
 }
 
-int server(RequestHandler handler) {
+int server(Controller handler) {
     init_server_fd(DEFAULT_SERVER_PORT);
     if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL_SYS();
     int ret;

@@ -4,3 +4,5 @@ maind
 objs/*
 gatling/*
 load-test/user-files/results/*
+postgres/
+pgsql

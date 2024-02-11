@@ -1,6 +1,14 @@
-#include <netinet/in.h>
+#ifndef SERVER_H
+#define SERVER_H
 
-#define DEFAULT_SERVER_PORT 5555
+#include <netinet/in.h>
+#ifdef DOCKER
+#include <postgresql/libpq-fe.h>
+#else
+#include <libpq-fe.h>
+#endif
+
+#define DEFAULT_SERVER_PORT 9999
 // #define QUEUE_DEPTH 4294967296
 // #define MAX_CONN 4294967296
 #define MAX_REQ_RESP_SIZE 4096
@@ -14,6 +22,7 @@ typedef enum event_t{
     EVENT_READING,
     EVENT_WRITING,
     EVENT_CLOSING,
+    EVENT_DB_RESPONDING,
 } Event;
 
 typedef struct req_res_t {
@@ -23,8 +32,11 @@ typedef struct req_res_t {
     int client_fd;
     struct sockaddr_in client_addr;
     socklen_t client_addr_len;
+    PGconn *db_conn;
+    int to_exit;
 } ReqRes;
 
-typedef void (*RequestHandler)(ReqRes*);
+typedef void (*Controller)(ReqRes*);
 
-int server(RequestHandler handler);
+int server(Controller handler);
+#endif
