@@ -7,6 +7,10 @@
 #include <unistd.h>
 #include "server.h"
 
+#ifndef MAXCONN
+#define MAXCONN SOMAXCONN
+#endif
+
 #define FATAL_SYS()                                                    \
     do {                                                               \
         fprintf(stderr, "FATAL IN %s:%d -> %s \n", __FILE__, __LINE__, \
@@ -50,7 +54,7 @@ static void init_server_fd(int port) {
         FATAL_SYS();
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
         FATAL_SYS();
-    if (listen(server_fd, SOMAXCONN) < 0) FATAL_SYS();
+    if (listen(server_fd, MAXCONN) < 0) FATAL_SYS();
 }
 
 static int push_accepting(ReqRes **out){
@@ -204,7 +208,7 @@ int server(Controller handler) {
     init_server_fd(DEFAULT_SERVER_PORT);
     if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL_SYS();
     int ret;
-    if ((ret = io_uring_queue_init(SOMAXCONN, &ring, 0)) != 0) FATAL_IO(ret);
+    if ((ret = io_uring_queue_init(4096, &ring, 0)) != 0) FATAL_IO(ret);
     server_loop(handler);
     return 0;
 }

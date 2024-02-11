@@ -5,6 +5,11 @@ if [[ "true" == "${DOCKER}" ]]; then
     COMPILE_DBG="$COMPILE_DBG -DLOG(...) -DDOCKER"
 fi
 
+if [[ "true" == "${CHGMAXCONN}" ]]; then
+    COMPILE="$COMPILE -DDOCKER -DMAXCONN=131072"
+    COMPILE_DBG="$COMPILE_DBG -DLOG(...) -DDOCKER -DMAXCONN=131072"
+fi
+
 rm -f objs/*.o
 
 gcc -Ipicoparser -O3 -o objs/picohttpparser.o -c picohttpparser/picohttpparser.c

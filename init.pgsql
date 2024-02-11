@@ -1,9 +1,9 @@
-CREATE TABLE clientes (
+CREATE UNLOGGED TABLE clientes (
     id SERIAL PRIMARY KEY,
     limite INTEGER NOT NULL
 );
 
-CREATE TABLE transacoes (
+CREATE UNLOGGED TABLE transacoes (
     id SERIAL PRIMARY KEY,
     cliente_id INTEGER NOT NULL REFERENCES clientes(id),
     valor INTEGER NOT NULL,
@@ -12,7 +12,7 @@ CREATE TABLE transacoes (
     realizada_em TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE saldos (
+CREATE UNLOGGED TABLE saldos (
     id SERIAL PRIMARY KEY,
     cliente_id INTEGER NOT NULL REFERENCES clientes(id),
     valor INTEGER NOT NULL

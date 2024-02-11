@@ -6,6 +6,7 @@ RUN apk update && apk upgrade && apk add liburing libpq pgbouncer && \
 FROM base as builder
 RUN apk add linux-headers libpq-dev liburing-dev build-base gdb
 ENV DOCKER="true"
+ENV CHGMAXCONN="true"
 WORKDIR /code
 COPY . .
 RUN ./build.sh
