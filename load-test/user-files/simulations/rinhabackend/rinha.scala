@@ -111,6 +111,25 @@ class RinhaBackendCrebitosSimulation
     )
   )
 
+  val validacaDebitosConcorrentesNumRequests = 25
+  val validacaDebitosConcorrentesTransacaoes = scenario("validação concorrência transações")
+    .exec(
+      http("validações concorrência")
+      .post("/clientes/4/transacoes")
+          .header("content-type", "application/json")
+          .body(StringBody("""{"valor": 1, "tipo": "d", "descricao": "validacao"}"""))
+          .check(status.is(200))
+    )
+  
+  val validacaDebitosConcorrentesExtrato = scenario("validação concorrência extrato")
+    .exec(
+      http("validações concorrência")
+      .get("/clientes/4/extrato")
+      .check(
+        jmesPath("saldo.total").ofType[Int].is(validacaDebitosConcorrentesNumRequests * -1)
+    )
+  )
+
   val saldosIniciaisClientes = Array(
     Map("id" -> 1, "limite" ->   1000 * 100),
     Map("id" -> 2, "limite" ->    800 * 100),
@@ -217,6 +236,13 @@ class RinhaBackendCrebitosSimulation
     comportam individualmente.
   */
   setUp(
+    validacaDebitosConcorrentesTransacaoes.inject(
+      atOnceUsers(validacaDebitosConcorrentesNumRequests)
+    ).andThen(
+      validacaDebitosConcorrentesExtrato.inject(
+        atOnceUsers(1)
+      )
+    ).andThen(
     criteriosClientes.inject(
       atOnceUsers(1)
     )
@@ -232,6 +258,7 @@ class RinhaBackendCrebitosSimulation
       extratos.inject(
         rampUsersPerSec(1).to(10).during(2.minutes),
         constantUsersPerSec(10).during(2.minutes)
+        )
       )
     )
   ).protocols(httpProtocol)
