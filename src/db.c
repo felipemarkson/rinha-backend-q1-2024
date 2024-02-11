@@ -1,5 +1,6 @@
 #include "db.h"
 #include <string.h>
+#include <time.h>
 
 #ifdef DOCKER
 #include <postgresql/libpq-fe.h>
@@ -84,6 +85,35 @@ int db_push_transacao(dbconn_t dbconn, const Transacao transacao[1], size_t buff
     return nwrite;
 }
 
+static int db_get_result_extrato(dbconn_t dbconn, PGresult *res, size_t buffer_size, char buffer[static buffer_size]){
+    ExecStatusType result = PQresultStatus(res);
+    if (result != PGRES_TUPLES_OK) {
+        LOG("SELECT failed: %s\n", PQerrorMessage(dbconn));
+        return -1;
+    }
+
+    // If DB function retuns NULL, it is a fail! But here we should not FAIL.
+    if (PQgetisnull(res, 0, 0)) {
+        LOG("%s\n","INTERNAL ERROR!");
+        return -1;
+    }
+
+    // Validations
+    if (PQntuples(res) != 1){
+        LOG("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
+        return -1;
+    }
+    if(PQnfields(res) != 1){
+        LOG("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
+        return -1;
+    }
+    char* db_ret =  PQgetvalue(res, 0, 0);
+    LOG("%s\n", db_ret);
+    int nwrite = (int)MIN(strlen(db_ret), buffer_size);
+    memcpy(buffer, db_ret, nwrite);
+    return nwrite;
+}
+
 int db_get_extrato(dbconn_t dbconn, uint64_t id, size_t buffer_size, char buffer[static buffer_size]){
     // Here, we reserve enough memory for build the command. Doing by PQexecParams is 
     // terrible.
@@ -93,35 +123,42 @@ int db_get_extrato(dbconn_t dbconn, uint64_t id, size_t buffer_size, char buffer
     snprintf(command_buffer, 50, "SELECT get_extrato(%lu::int)", id);
 
     PGresult *res = PQexec(dbconn, command_buffer);
-    ExecStatusType result = PQresultStatus(res);
-    if (result != PGRES_TUPLES_OK) {
+    int nwrite = db_get_result_extrato(dbconn, res, buffer_size, buffer);
+    PQclear(res);
+    return nwrite;
+}
+
+
+
+
+int db_start_extrato(dbconn_t dbconn, uint64_t id){
+    // Here, we reserve enough memory for build the command. Doing by PQexecParams is 
+    // terrible.
+    //                        __UINT64_MAX__
+    // SELECT get_extrato(18446744073709551615::int)
+    char command_buffer[50] = {0};
+    snprintf(command_buffer, 50, "SELECT get_extrato(%lu::int)", id);
+
+    int ret = PQsendQuery(dbconn, command_buffer);
+    if (ret < 0) {
         LOG("SELECT failed: %s\n", PQerrorMessage(dbconn));
-        PQclear(res);
         return -1;
     }
+    return 0;
+}
 
-    // If DB function retuns NULL, it is a fail! But here we should not FAIL.
-    if (PQgetisnull(res, 0, 0)) {
-        LOG("%s\n","INTERNAL ERROR!");
-        PQclear(res);
-        return -1;
-    }
+int db_end_extrato(dbconn_t dbconn, size_t buffer_size, char buffer[static buffer_size]){
+    do{
+        int ret = PQconsumeInput(dbconn);
+        if (ret != 1){
+            LOG("Consume result fail!: %s\n", PQerrorMessage(dbconn));
+            return -1;
+        }
+        nanosleep(&(struct timespec){.tv_nsec = 5}, NULL); // some time to load the result;
+    } while(PQisBusy(dbconn));
 
-    // Validations
-    if (PQntuples(res) != 1){
-        LOG("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
-        PQclear(res);
-        return -1;
-    }
-    if(PQnfields(res) != 1){
-        LOG("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
-        PQclear(res);
-        return -1;
-    }
-    char* db_ret =  PQgetvalue(res, 0, 0);
-    LOG("%s\n", db_ret);
-    int nwrite = (int)MIN(strlen(db_ret), buffer_size);
-    memcpy(buffer, db_ret, nwrite);
+    PGresult *res = PQgetResult(dbconn);
+    int nwrite = db_get_result_extrato(dbconn, res, buffer_size, buffer);
     PQclear(res);
     return nwrite;
 }

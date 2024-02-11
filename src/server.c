@@ -122,9 +122,22 @@ static int push_close_connection(ReqRes *req){
 }
 
 static int push_db_responding(ReqRes *req){
-    (void)req;
-    // TODO
-
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+    req->last_event = EVENT_DB_RESPONDING;
+    int db_fd = PQsocket(req->db_conn);
+    if(db_fd < 0) {
+        fprintf(stderr, "ERROR: Invalid DB file descriptor!\n");
+        req->to_exit = 1;
+        return -1;
+    }
+    io_uring_prep_read(sqe, db_fd, NULL, 0, 0); // We do not read. it is done by the PG.
+    io_uring_sqe_set_data(sqe, req);
+    int ret = 0;
+    if((ret = io_uring_submit(&ring)) < 0){
+        fprintf(stderr, "ERROR: Could not read the db response: %s\n", strerror(-ret));
+        req->to_exit = 1;
+        return -1;
+    }
     return 0;
 }
 
@@ -167,6 +180,7 @@ void server_loop(Controller handler) {
                 break;
             }
             case EVENT_DB_RESPONDING: {
+                req->db_handler(req);
                 push_writing(req);
                 break;
             }

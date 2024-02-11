@@ -58,13 +58,42 @@ void extrato(char* buffer, RequestData* reqdata) {
         return;
     }
     char db_buffer[2000] = {0};
-    int n_writed = db_get_extrato(dbconn, reqdata->id, 1400, db_buffer);
+    int n_writed = db_get_extrato(dbconn, reqdata->id, 2000-1, db_buffer);
     db_disconnect(dbconn);
     if (n_writed < 0) {
         SET_STATIC_RESPONSE(buffer, INTERNALERROR);
+        return;
     }
     snprintf(buffer, MAX_REQ_RESP_SIZE, OK_EXTRATO, n_writed + 1, db_buffer);
     return;
+}
+
+void end_extrato_async(void* _reqres){
+    ReqRes* reqres = (ReqRes*)_reqres;
+    char db_buffer[2000] = {0};
+    int n_writed = db_end_extrato(reqres->db_conn, 2000-1, db_buffer);
+    db_disconnect(reqres->db_conn);
+    reqres->db_conn = NULL;
+    if (n_writed < 0) {
+        SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
+        return;
+    }
+    snprintf(reqres->buffer, MAX_REQ_RESP_SIZE, OK_EXTRATO, n_writed + 1, db_buffer);
+    return;
+}
+
+void start_extrato_async(ReqRes* reqres, const RequestData* reqdata) {
+    dbconn_t dbconn = db_connect();
+    if (dbconn == NULL) {
+        SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
+        return;
+    }
+    if (db_start_extrato(dbconn, reqdata->id) < 0){
+        SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
+        return;   
+    }
+    reqres->db_conn = dbconn;
+    reqres->db_handler = end_extrato_async;
 }
 
 void controller(ReqRes* reqres) {
@@ -103,7 +132,7 @@ void controller(ReqRes* reqres) {
     }
 
     if (reqdata.method == GET && reqdata.uri == URI_EXTRATO) {
-        extrato(reqres->buffer, &reqdata);
+        start_extrato_async(reqres, &reqdata);
         return;
     }
     if (reqdata.method == POST && reqdata.uri == URI_TRANSACAO) {
