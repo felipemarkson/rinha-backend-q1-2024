@@ -20,9 +20,11 @@ int db_push_transacao(dbconn_t dbconn, const Transacao transacao[1], size_t buff
 // Returns -1 on error, number of bytes writed in buffer on success.
 int db_get_extrato(dbconn_t dbconn, uint64_t id, size_t buffer_size, char buffer[static buffer_size]);
 
-// Async
-
+// ASYNC FUNCTIONS BELLOW
 int db_start_extrato(dbconn_t dbconn, uint64_t id);
 int db_end_extrato(dbconn_t dbconn, size_t buffer_size, char buffer[static buffer_size]);
+
+int db_start_transacao(dbconn_t dbconn, const Transacao transacao[1]);
+int db_end_transacao(dbconn_t dbconn, size_t buffer_size, char buffer[static buffer_size]);
 
 #endif

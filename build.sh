@@ -1,5 +1,5 @@
 set -x
-COMPILE_DBG="gcc -DDEBUG -D_POSIX_C_SOURCE=200809L -O3 -ggdb -std=c99 -Wall -Wextra -Wswitch-enum -pedantic"
+COMPILE_DBG="gcc -DDB_ASYNC -DDEBUG -D_POSIX_C_SOURCE=200809L -O3 -ggdb -std=c99 -Wall -Wextra -Wswitch-enum -pedantic"
 if [[ "true" == "${DOCKER}" ]]; then
     COMPILE="$COMPILE -DDOCKER"
     COMPILE_DBG="$COMPILE_DBG -DLOG(...) -DDOCKER"
