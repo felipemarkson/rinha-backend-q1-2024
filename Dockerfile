@@ -1,12 +1,11 @@
 FROM alpine:3.19 AS base
-RUN apk update && apk upgrade && apk add liburing libpq pgbouncer && \
+RUN apk update && apk upgrade && apk add liburing libpq pgbouncer curl && \
     adduser -D -S localuser && chown localuser /usr/bin/pgbouncer
+ENV DOCKER="true"
 
 
 FROM base as builder
 RUN apk add linux-headers libpq-dev liburing-dev build-base gdb
-ENV DOCKER="true"
-ENV CHGMAXCONN="true"
 WORKDIR /code
 COPY . .
 RUN ./build.sh
@@ -18,5 +17,6 @@ WORKDIR /home/localuser
 COPY ./pgbouncer-docker.ini ./pgbouncer.ini
 COPY ./userslist.txt ./userslist.txt
 COPY --from=builder /code/maind backend
+COPY --from=builder /code/run.sh run.sh
 USER localuser
-CMD pgbouncer pgbouncer.ini -d; ./backend
+ENTRYPOINT ["/bin/sh", "-c", "./run.sh"]

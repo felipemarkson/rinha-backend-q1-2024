@@ -6,10 +6,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include "server.h"
-
-#ifndef MAXCONN
+#include  <openssl/conf.h>
 #define MAXCONN SOMAXCONN
-#endif
 
 #define FATAL_SYS()                                                    \
     do {                                                               \
@@ -215,6 +213,7 @@ static void sigint_handler(int signo) {
     (void)signo;
     printf("Exiting!\n");
     io_uring_queue_exit(&ring);
+    CONF_modules_finish();
     exit(0);
 }
 

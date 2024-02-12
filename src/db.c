@@ -11,8 +11,8 @@
 #define MIN(X,Y) ((X) < (Y) ? (X): (Y))
 
 
-static const char *conn_kws[]  = {"host",      "port",  "dbname",  "user",      "password", NULL};
-static const char *conn_vals[] = {"localhost", "6432",  "user_db", "user_user", "user_pwd", NULL};
+static const char *conn_kws[]  = {"host",      "port",  "dbname",  "user",      "password",  "require_auth", "gssencmode", "sslmode", NULL};
+static const char *conn_vals[] = {"localhost", "6432",  "user_db", "user_user", "user_pwd",  "password"    , "disable"   , "disable", NULL};
 
 dbconn_t db_connect(void){
     PGconn* db_conn = PQconnectdbParams(conn_kws, conn_vals, 0);

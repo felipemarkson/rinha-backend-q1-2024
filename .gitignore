@@ -8,3 +8,4 @@ postgres/
 pgsql
 pgbouncer.log
 pgbouncer.pid
+valgrind.log
