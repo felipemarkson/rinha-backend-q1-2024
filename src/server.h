@@ -2,11 +2,7 @@
 #define SERVER_H
 
 #include <netinet/in.h>
-#ifdef DOCKER
-#include <postgresql/libpq-fe.h>
-#else
-#include <libpq-fe.h>
-#endif
+#include "db.h"
 
 #define DEFAULT_SERVER_PORT 9999
 #define MAX_REQ_RESP_SIZE 4096
@@ -28,7 +24,7 @@ typedef struct req_res_t {
     int client_fd;
     struct sockaddr_in client_addr;
     socklen_t client_addr_len;
-    PGconn *db_conn;
+    dbconn_t db_conn;
     DBResponseHandler db_handler;
     int to_exit;
 } ReqRes;

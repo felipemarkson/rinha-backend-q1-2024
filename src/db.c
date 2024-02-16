@@ -38,6 +38,15 @@ void db_disconnect(dbconn_t db_conn){
     PQfinish(db_conn);
 }
 
+int db_socket(dbconn_t db_conn){
+    int db_fd = PQsocket(db_conn);
+    if(db_fd < 0) {
+        LOGERR("%s", "ERROR: Invalid DB file descriptor!");
+        return -1;
+    }
+    return db_fd;
+}
+
 static int db_get_result_transacao(dbconn_t dbconn, PGresult *res, size_t buffer_size, char buffer[static buffer_size]){
    ExecStatusType result = PQresultStatus(res);
     if (result != PGRES_TUPLES_OK) {

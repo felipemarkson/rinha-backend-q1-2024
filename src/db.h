@@ -1,13 +1,13 @@
 #ifndef DB_H
 #define DB_H
-
-#include "server.h"
-#include "request.h"
+#include "transacao.h"
+#include <stddef.h>
 
 typedef void* dbconn_t;
 
 dbconn_t db_connect(void);
 void db_disconnect(dbconn_t dbconn);
+int db_socket(dbconn_t dbconn);
 
 typedef enum transacao_error_t{
     TRANSACAO_INVALID = -1,

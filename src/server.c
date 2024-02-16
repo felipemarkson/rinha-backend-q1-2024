@@ -7,12 +7,12 @@
 #include <unistd.h>
 #include "server.h"
 #include "log.h"
-#include  <openssl/conf.h>
+#include <openssl/conf.h>
 #define MAXCONN SOMAXCONN
 
 static struct io_uring ring = {0};
 static int server_fd = 0;
-#define REQRES_ARENA_SIZE 16384
+#define REQRES_ARENA_SIZE 4096
 static ReqRes REQRES_ARENA[REQRES_ARENA_SIZE] = {0};
 
 ReqRes* init_reqres(){
@@ -28,12 +28,19 @@ ReqRes* init_reqres(){
         LOGERR("%s","There is no ReqRes available!");
         return NULL;
     }
+    if (REQRES_ARENA[i].db_conn == NULL){
+        REQRES_ARENA[i].db_conn = db_connect();
+        if(REQRES_ARENA[i].db_conn == NULL)
+            FATAL3("%s","Invalid DB connection!");
+    }
 
     REQRES_ARENA[i].ring = &ring;
     return REQRES_ARENA + i;
 }
 static void deinit_reqres(ReqRes *req){
+    dbconn_t dbconn = req->db_conn;
     memset(req, 0, sizeof(ReqRes));
+    req->db_conn = dbconn;
 }
 
 static void init_server_fd(int port) {
@@ -115,7 +122,7 @@ static int push_close_connection(ReqRes *req){
 static int push_db_responding(ReqRes *req){
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     req->last_event = EVENT_DB_RESPONDING;
-    int db_fd = PQsocket(req->db_conn);
+    int db_fd = db_socket(req->db_conn);
     if(db_fd < 0) {
         FATAL3("%s", "ERROR: Invalid DB file descriptor!");
         return -1;

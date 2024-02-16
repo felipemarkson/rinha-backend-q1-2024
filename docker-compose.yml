@@ -46,7 +46,7 @@ services:
       resources:
         limits:
           cpus: "0.25"
-          memory: "10MB" # 10 MB is enough :)
+          memory: "100MB" # 10 MB is enough :)
     networks:
       - rinha
     healthcheck:

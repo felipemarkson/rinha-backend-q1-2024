@@ -2,10 +2,12 @@
 #include "request.h"
 #include "response.h"
 #include "server.h"
+#include <stdio.h>
 
 #ifndef DB_ASYNC
-void transacao(char* buffer, RequestData* reqdata) {
+void transacao(ReqRes* reqres, RequestData* reqdata) {
     Transacao transacao = {0};
+    char *buffer = reqres->buffer;
     switch (parse_transacoes(buffer, reqdata, &transacao)) {
         case PARSER_INVALID: {
             SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
@@ -22,16 +24,9 @@ void transacao(char* buffer, RequestData* reqdata) {
             return;
         }
     }
-    dbconn_t dbconn = db_connect();
-    if (dbconn == NULL) {
-        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
-        return;
-    }
-
     // {"limite": 100000, "saldo": -9098}
     char db_buffer[50] = {0};
-    int n_writed = db_push_transacao(dbconn, &transacao, 50, db_buffer);
-    db_disconnect(dbconn);
+    int n_writed = db_push_transacao(reqres->db_conn, &transacao, 50, db_buffer);
     switch (n_writed) {
         case TRANSACAO_DB_ERROR: {
             SET_STATIC_RESPONSE(buffer, INTERNALERROR);
@@ -52,19 +47,10 @@ void transacao(char* buffer, RequestData* reqdata) {
     return;
 }
 
-void extrato(char* buffer, RequestData* reqdata) {
-    dbconn_t dbconn = db_connect();
-    if (dbconn == NULL) {
-        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
-        return;
-    }
+void extrato(ReqRes* reqres, RequestData* reqdata) {
     char db_buffer[2000] = {0};
-    int n_writed = db_get_extrato(dbconn, reqdata->id, 2000-1, db_buffer);
-    db_disconnect(dbconn);
-    if (n_writed < 0) {
-        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
-        return;
-    }
+    char *buffer = reqres->buffer;
+    int n_writed = db_get_extrato(reqres->db_conn, reqdata->id, 2000-1, db_buffer);
     snprintf(buffer, MAX_REQ_RESP_SIZE, OK_EXTRATO, n_writed + 1, db_buffer);
     return;
 }
@@ -74,8 +60,6 @@ void end_transacao_async(void* _reqres){
     ReqRes* reqres = (ReqRes*)_reqres;
     char db_buffer[50] = {0};
     int n_writed = db_end_transacao(reqres->db_conn, 50, db_buffer);
-    db_disconnect(reqres->db_conn);
-    reqres->db_conn = NULL;
     switch (n_writed) {
         case TRANSACAO_DB_ERROR: {
             SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
@@ -113,18 +97,10 @@ void start_transacao_async(ReqRes* reqres, const RequestData* reqdata) {
             return;
         }
     }
-    dbconn_t dbconn = db_connect();
-    if (dbconn == NULL) {
-        SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
-        return;
-    }
-
-    if (db_start_transacao(dbconn, &transacao) < 0){
+    if (db_start_transacao(reqres->db_conn, &transacao) < 0){
         SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
         return;   
     }
-
-    reqres->db_conn = dbconn;
     reqres->db_handler = end_transacao_async;
 }
 
@@ -132,8 +108,6 @@ void end_extrato_async(void* _reqres){
     ReqRes* reqres = (ReqRes*)_reqres;
     char db_buffer[2000] = {0};
     int n_writed = db_end_extrato(reqres->db_conn, 2000-1, db_buffer);
-    db_disconnect(reqres->db_conn);
-    reqres->db_conn = NULL;
     if (n_writed < 0) {
         SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
         return;
@@ -143,16 +117,10 @@ void end_extrato_async(void* _reqres){
 }
 
 void start_extrato_async(ReqRes* reqres, const RequestData* reqdata) {
-    dbconn_t dbconn = db_connect();
-    if (dbconn == NULL) {
-        SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
-        return;
-    }
-    if (db_start_extrato(dbconn, reqdata->id) < 0){
+    if (db_start_extrato(reqres->db_conn, reqdata->id) < 0){
         SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
         return;   
     }
-    reqres->db_conn = dbconn;
     reqres->db_handler = end_extrato_async;
 }
 #endif

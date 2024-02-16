@@ -1,6 +1,6 @@
 #ifndef REQUEST_H
 #define REQUEST_H
-#include "server.h"
+#include "transacao.h"
 
 typedef enum uri_t{
     URI_TRANSACAO = 0,
@@ -23,13 +23,6 @@ typedef struct request_data_t {
     int body_loc;
     uint64_t id;
 } RequestData;
-
-typedef struct transacao_t{
-    uint64_t id;
-    int64_t valor;
-    char tipo;
-    char descricao[10];
-} Transacao;
 
 ParserError request_parser(const char* buffer, RequestData reqdata[1]);
 
