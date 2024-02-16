@@ -79,7 +79,7 @@ static int push_reading(ReqRes *req, int client_fd){
 
     int ret = 0;
     if((ret = io_uring_submit(&ring)) < 0){
-        fprintf(stderr, "ERROR: Could not read the request: %s\n", strerror(-ret));
+        LOGERR("ERROR: Could not read the request: %s\n", strerror(-ret));
         return -1;
     }
 
@@ -93,7 +93,7 @@ static int push_writing(ReqRes *req){
     io_uring_sqe_set_data(sqe, req);
     int ret = 0;
     if((ret = io_uring_submit(&ring)) < 0){
-        fprintf(stderr, "ERROR: Could not write the response: %s\n", strerror(-ret));
+        LOGERR("ERROR: Could not write the response: %s\n", strerror(-ret));
         return -1;
     }
     return 0;
@@ -106,7 +106,7 @@ static int push_close_connection(ReqRes *req){
     io_uring_sqe_set_data(sqe, req);
     int ret = 0;
     if((ret = io_uring_submit(&ring)) < 0){
-        fprintf(stderr, "ERROR: Could not close the connection: %s\n", strerror(-ret));
+        LOGERR("ERROR: Could not close the connection: %s\n", strerror(-ret));
         return -1;
     }
     return 0;
@@ -117,16 +117,14 @@ static int push_db_responding(ReqRes *req){
     req->last_event = EVENT_DB_RESPONDING;
     int db_fd = PQsocket(req->db_conn);
     if(db_fd < 0) {
-        fprintf(stderr, "ERROR: Invalid DB file descriptor!\n");
-        req->to_exit = 1;
+        FATAL3("%s", "ERROR: Invalid DB file descriptor!");
         return -1;
     }
     io_uring_prep_read(sqe, db_fd, NULL, 0, 0); // We do not read. it is done by the PG.
     io_uring_sqe_set_data(sqe, req);
     int ret = 0;
     if((ret = io_uring_submit(&ring)) < 0){
-        fprintf(stderr, "ERROR: Could not read the db response: %s\n", strerror(-ret));
-        req->to_exit = 1;
+        FATAL3("ERROR: Could not read the db response: %s\n", strerror(-ret));
         return -1;
     }
     return 0;
@@ -150,7 +148,7 @@ void server_loop(Controller handler) {
         int result = cqe->res;
         ReqRes *req = (ReqRes *)cqe->user_data;
         if (result < 0) {
-            fprintf(stderr, "ERROR: Could not process the last event (%d): %s\n", req->last_event, strerror(-result));
+            LOGERR("ERROR: Could not process the last event (%d): %s\n", req->last_event, strerror(-result));
             continue;
         }
 
@@ -164,8 +162,10 @@ void server_loop(Controller handler) {
             case EVENT_READING: {
                 LOG("%s", "The server had read data from the connection!\n");
                 handler(req);
-                if (req->db_conn == NULL)
+                if (req->db_handler == NULL){
+                    LOG("%s", "Handler do not requested DB...\n");
                     push_writing(req);
+                }
                 else
                     push_db_responding(req);
                 break;
@@ -186,7 +186,7 @@ void server_loop(Controller handler) {
                 break;
             }
             default: {
-                fprintf(stderr, "ERROR: UNREACHABLE!!!! ReqRes last envent: %d", req->last_event);
+                FATAL3("ERROR: UNREACHABLE!!!! ReqRes last envent: %d", req->last_event);
                 break;
             }
         }
@@ -195,8 +195,7 @@ void server_loop(Controller handler) {
             write(req->client_fd, req->buffer, strlen(req->buffer));
             for (size_t i = 0; i < REQRES_ARENA_SIZE; i++)
                 close(REQRES_ARENA[i].client_fd);
-            io_uring_queue_exit(&ring);
-            exit(0);
+            return;
         }
     }
 }
@@ -216,5 +215,6 @@ int server(Controller handler) {
     int ret;
     if ((ret = io_uring_queue_init(4096, &ring, 0)) != 0) FATAL2(ret);
     server_loop(handler);
+    sigint_handler(0);
     return 0;
 }

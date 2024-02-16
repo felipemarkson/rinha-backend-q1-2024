@@ -6,7 +6,7 @@ gatling/*
 load-test/user-files/results/*
 postgres/
 pgsql
-pgbouncer.log
 pgbouncer.pid
 valgrind.log
 ./*.sh
+*.log

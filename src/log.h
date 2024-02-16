@@ -3,8 +3,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#ifndef LOG
+#ifndef DOCKER
 #define LOG(template, ...) printf("LOG %s:%d -> " template "\n", __FILE__, __LINE__, __VA_ARGS__)
+#else
+#define LOG(...) (void)0
 #endif
 
 #ifndef DIE_ON_ERROR
