@@ -12,23 +12,25 @@
 #define MIN(X,Y) ((X) < (Y) ? (X): (Y))
 
 
-static const char *conn_kws[]  = {"host",      "port",  "dbname",  "user",      "password",  "require_auth", "gssencmode", "sslmode", NULL};
-static const char *conn_vals[] = {"localhost", "6432",  "user_db", "user_user", "user_pwd",  "password"    , "disable"   , "disable", NULL};
+static const char *conn_kws[]  = {"hostaddr", "port",  "dbname",  "user",      "password", "gssencmode", "sslmode", NULL};
+static const char *conn_vals[] = {"0.0.0.0",  "6432",  "user_db", "user_user", "user_pwd", "disable"   , "disable", NULL};
 
 dbconn_t db_connect(void){
+    LOG("DB loging in:\n\tHost: %s\n\tPort: %s", conn_vals[0], conn_vals[1]);
     PGconn* db_conn = PQconnectdbParams(conn_kws, conn_vals, 0);
+
     if (db_conn == NULL){
         LOGERR("%s", "DB memory error");
         return NULL;
     }
     if (PQstatus(db_conn) != CONNECTION_OK){
+        LOGERR("DB bad connection: %s", PQerrorMessage(db_conn));
         PQfinish(db_conn);
-        LOGERR("%s: %d", "DB bad connection", PQstatus(db_conn));
         return NULL;
     }
     if(PQsetnonblocking(db_conn, 1) == -1){
-        PQfinish(db_conn);
         LOGERR("%s: %d", "DB cannot async", PQstatus(db_conn));
+        PQfinish(db_conn);
         return NULL;
     }
     return (dbconn_t)db_conn;
@@ -45,6 +47,15 @@ int db_socket(dbconn_t db_conn){
         return -1;
     }
     return db_fd;
+}
+
+static void clear_dbconn(dbconn_t dbconn){
+    PGresult *res = PQgetResult(dbconn);
+    while(res != NULL){
+        PQclear(res);
+        res = PQgetResult(dbconn);
+    }
+    LOG("%s","DB connection was cleared!");
 }
 
 static int db_get_result_transacao(dbconn_t dbconn, PGresult *res, size_t buffer_size, char buffer[static buffer_size]){
@@ -93,6 +104,7 @@ int db_push_transacao(dbconn_t dbconn, const Transacao transacao[1], size_t buff
     PGresult *res = PQexecParams(dbconn, command_buffer, 1, NULL, paramVals, NULL, NULL, 0);
     int nwrite = db_get_result_transacao(dbconn, res, buffer_size, buffer);
     PQclear(res);
+    clear_dbconn(dbconn);
     return nwrite; 
 }
 
@@ -136,6 +148,7 @@ int db_get_extrato(dbconn_t dbconn, uint64_t id, size_t buffer_size, char buffer
     PGresult *res = PQexec(dbconn, command_buffer);
     int nwrite = db_get_result_extrato(dbconn, res, buffer_size, buffer);
     PQclear(res);
+    clear_dbconn(dbconn);
     return nwrite;
 }
 
@@ -177,6 +190,7 @@ int db_end_extrato(dbconn_t dbconn, size_t buffer_size, char buffer[static buffe
     PGresult *res = PQgetResult(dbconn);
     int nwrite = db_get_result_extrato(dbconn, res, buffer_size, buffer);
     PQclear(res);
+    clear_dbconn(dbconn);
     return nwrite;
 }
 
@@ -207,5 +221,6 @@ int db_end_transacao(dbconn_t dbconn, size_t buffer_size, char buffer[static buf
     PGresult *res = PQgetResult(dbconn);
     int nwrite = db_get_result_transacao(dbconn, res, buffer_size, buffer);
     PQclear(res);
+    clear_dbconn(dbconn);
     return nwrite;
 }

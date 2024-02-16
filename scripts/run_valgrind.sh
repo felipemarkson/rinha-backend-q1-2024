@@ -1,12 +1,16 @@
+rm -rf docker.log
+rm -rf pgbouncer.log
+pkill pgbouncer
 set -ex
 
 docker compose down --remove-orphans
-docker compose -f docker-compose-db-only.yml up -d
+docker compose -f docker-compose-db-only.yml down --remove-orphans
+docker compose -f docker-compose-db-only.yml up &> docker.log &
 echo "Waiting DB"
 sleep 10 # wait pg
-pgbouncer pgbouncer.ini -d
+pgbouncer configs/pgbouncer.ini -d
 echo "Waiting PGbouncer"
-sleep 2 # wait pg
+sleep 5 # wait pg
 valgrind --leak-check=full --show-leak-kinds=all --log-file=valgrind.log ./maind &
 PID_BIN=$!
 echo "Waiting valgrind"

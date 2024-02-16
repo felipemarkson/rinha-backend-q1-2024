@@ -13,4 +13,4 @@ $COMPILE_DBG -o objs/server_d.o -c src/server.c
 $COMPILE_DBG -o objs/request_d.o -c src/request.c
 $COMPILE_DBG -o objs/db_d.o -c src/db.c
 $COMPILE_DBG -o objs/main_d.o -c src/main.c
-$COMPILE_DBG objs/cJSON.o objs/picohttpparser.o objs/*_d.o -o maind -luring -lpq -lcrypto
+$COMPILE_DBG objs/cJSON.o objs/picohttpparser.o objs/*_d.o -o maind -luring -lpq

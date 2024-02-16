@@ -4,7 +4,7 @@ services:
     restart: always
     image: postgres:16-alpine3.19
     volumes:
-      - ./init.pgsql:/docker-entrypoint-initdb.d/init.sql
+      - ./configs/init.pgsql:/docker-entrypoint-initdb.d/init.sql
     environment:
       POSTGRES_USER: user_user
       POSTGRES_PASSWORD: user_pwd
@@ -21,4 +21,13 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: "200MB"
+          memory: "500MB"
+  
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080
+    depends_on:
+      postgres:
+        condition: service_healthy

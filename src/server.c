@@ -7,40 +7,67 @@
 #include <unistd.h>
 #include "server.h"
 #include "log.h"
-#include <openssl/conf.h>
+#include "response.h"
 #define MAXCONN SOMAXCONN
 
 static struct io_uring ring = {0};
 static int server_fd = 0;
-#define REQRES_ARENA_SIZE 4096
-static ReqRes REQRES_ARENA[REQRES_ARENA_SIZE] = {0};
+#define REQRES_POOL_SIZE 4096
+static ReqRes REQRES_POOL[REQRES_POOL_SIZE] = {0};
+#define DBCONNS_POOL_SIZE 1024
+static char DBCONNS_USED[DBCONNS_POOL_SIZE] = {0};
+static dbconn_t DBCONNS_POOL[DBCONNS_POOL_SIZE] = {0};
 
-ReqRes* init_reqres(){
+void init_dbconns_arena(void){
+    for (int i = 0; i < DBCONNS_POOL_SIZE; i++){
+        DBCONNS_POOL[i] = db_connect();
+        if(DBCONNS_POOL[i] == NULL)
+            FATAL3("%s","Invalid DB connection!");
+    }
+}
+void deinit_dbconns_arena(void){
+    for (int i = 0; i < DBCONNS_POOL_SIZE; i++){
+        db_disconnect(DBCONNS_POOL[i]);
+    }
+}
+dbconn_t get_dbconn(void) {
+    for (int i = 0; i < DBCONNS_POOL_SIZE; i++){
+        if (DBCONNS_USED[i] == 0){
+            DBCONNS_USED[i] = 1;
+            return DBCONNS_POOL[i];
+        }
+    }
+    LOGERR("%s","There is no DB connection available");
+    return NULL;
+}
+void release_dbconn(dbconn_t dbconn){
+    for (int i = 0; i < DBCONNS_POOL_SIZE; i++){
+        if (dbconn == DBCONNS_POOL[i]){
+            DBCONNS_USED[i] = 0;
+            return;
+        }
+    }
+    FATAL3("%s","UNREACHABLE!"); 
+}
+
+ReqRes* init_reqres(void){
     int i;
-    int found = 0;
-    for (i = 0; i < REQRES_ARENA_SIZE; i++){
-        if (REQRES_ARENA[i].ring == NULL){
+    char found = 0;
+    for (i = 0; i < REQRES_POOL_SIZE; i++){
+        if (REQRES_POOL[i].ring == NULL){
             found = 1;
             break;
         }
     }
-    if (!found){ // NOT FOUND
+    if (found == 0){ // NOT FOUND
         LOGERR("%s","There is no ReqRes available!");
         return NULL;
     }
-    if (REQRES_ARENA[i].db_conn == NULL){
-        REQRES_ARENA[i].db_conn = db_connect();
-        if(REQRES_ARENA[i].db_conn == NULL)
-            FATAL3("%s","Invalid DB connection!");
-    }
-
-    REQRES_ARENA[i].ring = &ring;
-    return REQRES_ARENA + i;
+    REQRES_POOL[i].ring = &ring;
+    return REQRES_POOL + i;
 }
 static void deinit_reqres(ReqRes *req){
-    dbconn_t dbconn = req->db_conn;
     memset(req, 0, sizeof(ReqRes));
-    req->db_conn = dbconn;
 }
 
 static void init_server_fd(int port) {
@@ -56,10 +83,10 @@ static void init_server_fd(int port) {
 }
 
 static int push_accepting(ReqRes **out){
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     ReqRes *req = init_reqres();
     if(req == NULL)
-        FATAL(); // Memory error, just dying...
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+        FATAL3("%s", "There is no ReqRes available");
 
     req->last_event = EVENT_ACCEPTTING;
     io_uring_prep_accept(sqe, server_fd, (struct sockaddr *)&(req->client_addr),
@@ -156,7 +183,7 @@ void server_loop(Controller handler) {
         ReqRes *req = (ReqRes *)cqe->user_data;
         if (result < 0) {
             LOGERR("ERROR: Could not process the last event (%d): %s\n", req->last_event, strerror(-result));
-            continue;
+            goto ioseen;
         }
 
         switch (req->last_event) {
@@ -168,6 +195,12 @@ void server_loop(Controller handler) {
             }
             case EVENT_READING: {
                 LOG("%s", "The server had read data from the connection!\n");
+                req->db_conn = get_dbconn();
+                if(req->db_conn == NULL){
+                    SET_STATIC_RESPONSE(req->buffer, INTERNALERROR);
+                    push_writing(req);
+                    break;
+                }
                 handler(req);
                 if (req->db_handler == NULL){
                     LOG("%s", "Handler do not requested DB...\n");
@@ -179,6 +212,7 @@ void server_loop(Controller handler) {
             }
             case EVENT_DB_RESPONDING: {
                 req->db_handler(req);
+                release_dbconn(req->db_conn);
                 push_writing(req);
                 break;
             }
@@ -197,11 +231,12 @@ void server_loop(Controller handler) {
                 break;
             }
         }
+ioseen:
         io_uring_cqe_seen(&ring, cqe);
         if (req->to_exit){
             write(req->client_fd, req->buffer, strlen(req->buffer));
-            for (size_t i = 0; i < REQRES_ARENA_SIZE; i++)
-                close(REQRES_ARENA[i].client_fd);
+            for (size_t i = 0; i < REQRES_POOL_SIZE; i++)
+                close(REQRES_POOL[i].client_fd);
             return;
         }
     }
@@ -212,11 +247,12 @@ static void sigint_handler(int signo) {
     (void)signo;
     printf("Exiting!\n");
     io_uring_queue_exit(&ring);
-    CONF_modules_finish();
+    deinit_dbconns_arena();
     exit(0);
 }
 
 int server(Controller handler) {
+    init_dbconns_arena();
     init_server_fd(DEFAULT_SERVER_PORT);
     if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL();
     int ret;
