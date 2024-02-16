@@ -47,7 +47,7 @@ static int db_get_result_transacao(dbconn_t dbconn, PGresult *res, size_t buffer
 
     // If DB function retuns NULL, it is a fail!
     if (PQgetisnull(res, 0, 0)) {
-        LOGERR("%s\n","INVALID TRANSACTION!!!");
+        LOG("%s","INVALID TRANSACTION!!!");
         return TRANSACAO_INVALID;
     }
 

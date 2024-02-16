@@ -13,7 +13,8 @@
 static const char *res[] = {
     "\\/clientes\\/[0-9]+\\/transacoes",
     "\\/clientes\\/[0-9]+\\/extrato",
-    "\\/exit"
+    "\\/exit",
+    "\\/ping"
 };
 
 static int map_method(const char *method, Method *out) {
@@ -66,10 +67,10 @@ ParserError request_parser(const char*buff, RequestData reqdata[1]) {
     }
     if (matched_index < 0)  // Not found
         return PARSER_INVALID;
-    if (matched_index == 2) {
+    if (matched_index == URI_EXIT || matched_index == URI_PING) {
         reqdata->body_loc = nparsed; 
         reqdata->method = method;
-        reqdata->uri = URI_EXIT;
+        reqdata->uri = matched_index;
         reqdata->id = UINT64_MAX;
         return PARSER_OK;
     }

@@ -180,6 +180,11 @@ void controller(ReqRes* reqres) {
         reqres->to_exit = 1;
         return;
     }
+    if (reqdata.uri == URI_PING){
+        SET_STATIC_RESPONSE(reqres->buffer, OK_PING);
+        return;
+    }
+
     if (reqdata.id >= 6) {
         SET_STATIC_RESPONSE(reqres->buffer, NOTFOUND);
         return;

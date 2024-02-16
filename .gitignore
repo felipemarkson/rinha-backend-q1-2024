@@ -9,3 +9,4 @@ pgsql
 pgbouncer.log
 pgbouncer.pid
 valgrind.log
+./*.sh

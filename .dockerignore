@@ -1,7 +1,7 @@
 main
 maind
 .vscode/*
-objs/*.o
+objs/*
 test_*
 gatling/*
 load-test/*

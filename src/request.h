@@ -6,6 +6,7 @@ typedef enum uri_t{
     URI_TRANSACAO = 0,
     URI_EXTRATO,
     URI_EXIT,
+    URI_PING
 } Uri;
 
 typedef enum method_t { GET, POST } Method;

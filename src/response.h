@@ -71,4 +71,9 @@
     "Content-type: text/plain\r\n"    \
     "Content-Length: 0\r\n"           \
     "\r\n"
+
+#define OK_PING                       \
+    "HTTP/1.1 200 PONG\r\n"           \
+    "\r\n"
+
 #endif
