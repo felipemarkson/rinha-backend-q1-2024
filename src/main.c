@@ -194,7 +194,7 @@ void controller(ReqRes* reqres) {
 
 #ifndef DB_ASYNC
     if (reqdata.method == GET && reqdata.uri == URI_EXTRATO) {
-        extrato(reqres, &reqdata);
+        extrato(reqres->buffer, &reqdata);
         return;
     }
     if (reqdata.method == POST && reqdata.uri == URI_TRANSACAO) {

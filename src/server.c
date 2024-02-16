@@ -6,22 +6,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include "server.h"
+#include "log.h"
 #include  <openssl/conf.h>
 #define MAXCONN SOMAXCONN
-
-#define FATAL_SYS()                                                    \
-    do {                                                               \
-        fprintf(stderr, "FATAL IN %s:%d -> %s \n", __FILE__, __LINE__, \
-                strerror(errno));                                      \
-        exit(1);                                                       \
-    } while (0)
-
-#define FATAL_IO(err_io)                                                        \
-    do {                                                                        \
-        fprintf(stderr, "FATAL IO IN %s:%d -> (%d): %s \n", __FILE__, __LINE__, \
-                -(int)(err_io), strerror(-(int)(err_io)));                      \
-        exit(1);                                                                \
-    } while (0)
 
 static struct io_uring ring = {0};
 static int server_fd = 0;
@@ -30,12 +17,18 @@ static ReqRes REQRES_ARENA[REQRES_ARENA_SIZE] = {0};
 
 ReqRes* init_reqres(){
     int i;
-    for (i = 0; i < REQRES_ARENA_SIZE; i++)
-       if (REQRES_ARENA[i].ring == NULL)
+    int found = 0;
+    for (i = 0; i < REQRES_ARENA_SIZE; i++){
+        if (REQRES_ARENA[i].ring == NULL){
+            found = 1;
             break;
+        }
+    }
+    if (!found){ // NOT FOUND
+        LOGERR("%s","There is no ReqRes available!");
+        return NULL;
+    }
 
-    if (REQRES_ARENA[i].ring != NULL) // NOT FOUND
-        FATAL_SYS();
     REQRES_ARENA[i].ring = &ring;
     return REQRES_ARENA + i;
 }
@@ -47,18 +40,18 @@ static void init_server_fd(int port) {
     int reuse_addr = 1;
     struct sockaddr_in server_addr = {.sin_family = AF_INET, .sin_port = htons(port)};
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) FATAL_SYS();
+    if (server_fd < 0) FATAL();
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr)) < 0)
-        FATAL_SYS();
+        FATAL();
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-        FATAL_SYS();
-    if (listen(server_fd, MAXCONN) < 0) FATAL_SYS();
+        FATAL();
+    if (listen(server_fd, MAXCONN) < 0) FATAL();
 }
 
 static int push_accepting(ReqRes **out){
     ReqRes *req = init_reqres();
     if(req == NULL)
-        FATAL_SYS(); // Memory error, just dying...
+        FATAL(); // Memory error, just dying...
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
 
     req->last_event = EVENT_ACCEPTTING;
@@ -67,7 +60,7 @@ static int push_accepting(ReqRes **out){
     io_uring_sqe_set_data(sqe, req);
     int ret = 0;
     if((ret = io_uring_submit(&ring)) < 0){
-        fprintf(stderr, "ERROR: Could not accept the request: %s\n", strerror(-ret));
+        LOGERR("ERROR: Could not accept the request: %s\n", strerror(-ret));
         return -1;
     }
     if (out != NULL)
@@ -150,7 +143,7 @@ void server_loop(Controller handler) {
         ret = io_uring_wait_cqe(&ring, &cqe);
         if (ret != 0){
             if (ret != -4) // gdb interruped
-                FATAL_IO(ret);
+                FATAL2(ret);
             else
                 continue;
         }
@@ -219,9 +212,9 @@ static void sigint_handler(int signo) {
 
 int server(Controller handler) {
     init_server_fd(DEFAULT_SERVER_PORT);
-    if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL_SYS();
+    if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL();
     int ret;
-    if ((ret = io_uring_queue_init(4096, &ring, 0)) != 0) FATAL_IO(ret);
+    if ((ret = io_uring_queue_init(4096, &ring, 0)) != 0) FATAL2(ret);
     server_loop(handler);
     return 0;
 }

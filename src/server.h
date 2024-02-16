@@ -10,10 +10,6 @@
 
 #define DEFAULT_SERVER_PORT 9999
 #define MAX_REQ_RESP_SIZE 4096
-#define SIZE_ARRAY(static_array) sizeof(static_array) / sizeof(*(static_array))
-#ifndef LOG
-#define LOG(template, ...) printf("LOG %s:%d -> " template, __FILE__, __LINE__, __VA_ARGS__)
-#endif
 
 typedef enum event_t{
     EVENT_ACCEPTTING = 0,

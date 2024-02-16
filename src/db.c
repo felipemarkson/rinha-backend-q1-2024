@@ -1,6 +1,7 @@
 #include "db.h"
 #include <string.h>
 #include <time.h>
+#include "log.h"
 
 #ifdef DOCKER
 #include <postgresql/libpq-fe.h>
@@ -17,17 +18,17 @@ static const char *conn_vals[] = {"localhost", "6432",  "user_db", "user_user", 
 dbconn_t db_connect(void){
     PGconn* db_conn = PQconnectdbParams(conn_kws, conn_vals, 0);
     if (db_conn == NULL){
-        LOG("%s", "DB memory error");
+        LOGERR("%s", "DB memory error");
         return NULL;
     }
     if (PQstatus(db_conn) != CONNECTION_OK){
         PQfinish(db_conn);
-        LOG("%s: %d", "DB bad connection", PQstatus(db_conn));
+        LOGERR("%s: %d", "DB bad connection", PQstatus(db_conn));
         return NULL;
     }
     if(PQsetnonblocking(db_conn, 1) == -1){
         PQfinish(db_conn);
-        LOG("%s: %d", "DB cannot async", PQstatus(db_conn));
+        LOGERR("%s: %d", "DB cannot async", PQstatus(db_conn));
         return NULL;
     }
     return (dbconn_t)db_conn;
@@ -40,23 +41,23 @@ void db_disconnect(dbconn_t db_conn){
 static int db_get_result_transacao(dbconn_t dbconn, PGresult *res, size_t buffer_size, char buffer[static buffer_size]){
    ExecStatusType result = PQresultStatus(res);
     if (result != PGRES_TUPLES_OK) {
-        LOG("SELECT failed: %s\n", PQerrorMessage(dbconn));
+        LOGERR("SELECT failed: %s\n", PQerrorMessage(dbconn));
         return TRANSACAO_DB_ERROR;
     }
 
     // If DB function retuns NULL, it is a fail!
     if (PQgetisnull(res, 0, 0)) {
-        LOG("%s\n","INVALID TRANSACTION!!!");
+        LOGERR("%s\n","INVALID TRANSACTION!!!");
         return TRANSACAO_INVALID;
     }
 
     // Validations
     if (PQntuples(res) != 1){
-        LOG("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
+        LOGERR("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
         return TRANSACAO_DB_ERROR;
     }
     if(PQnfields(res) != 1){
-        LOG("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
+        LOGERR("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
         return TRANSACAO_DB_ERROR;
     }
     char* db_ret =  PQgetvalue(res, 0, 0);
@@ -89,23 +90,23 @@ int db_push_transacao(dbconn_t dbconn, const Transacao transacao[1], size_t buff
 static int db_get_result_extrato(dbconn_t dbconn, PGresult *res, size_t buffer_size, char buffer[static buffer_size]){
     ExecStatusType result = PQresultStatus(res);
     if (result != PGRES_TUPLES_OK) {
-        LOG("SELECT failed: %s\n", PQerrorMessage(dbconn));
+        LOGERR("SELECT failed: %s\n", PQerrorMessage(dbconn));
         return -1;
     }
 
     // If DB function retuns NULL, it is a fail! But here we should not FAIL.
     if (PQgetisnull(res, 0, 0)) {
-        LOG("%s\n","INTERNAL ERROR!");
+        LOGERR("%s\n","INTERNAL ERROR!");
         return -1;
     }
 
     // Validations
     if (PQntuples(res) != 1){
-        LOG("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
+        LOGERR("%s %d\n", "Expectation fail! Number of rows: ", PQntuples(res));
         return -1;
     }
     if(PQnfields(res) != 1){
-        LOG("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
+        LOGERR("%s %d\n", "Expectation fail! Number of columns: ", PQnfields(res));
         return -1;
     }
     char* db_ret =  PQgetvalue(res, 0, 0);
@@ -134,7 +135,7 @@ static int wait_db(dbconn_t dbconn){
     do{
         int ret = PQconsumeInput(dbconn);
         if (ret != 1){
-            LOG("Consume result fail!: %s\n", PQerrorMessage(dbconn));
+            LOGERR("Consume result fail!: %s\n", PQerrorMessage(dbconn));
             return -1;
         }
         nanosleep(&(struct timespec){.tv_nsec = 5}, NULL); // some time to load the result;
@@ -152,7 +153,7 @@ int db_start_extrato(dbconn_t dbconn, uint64_t id){
 
     int ret = PQsendQuery(dbconn, command_buffer);
     if (ret < 0) {
-        LOG("SELECT failed: %s\n", PQerrorMessage(dbconn));
+        LOGERR("SELECT failed: %s\n", PQerrorMessage(dbconn));
         return -1;
     }
     return 0;
@@ -185,7 +186,7 @@ int db_start_transacao(dbconn_t dbconn, const Transacao transacao[1]) {
     const char *paramVals[] = {transacao->descricao};
     int ret = PQsendQueryParams(dbconn, command_buffer, 1, NULL, paramVals, NULL, NULL, 0);
     if (ret < 0) {
-        LOG("SELECT failed: %s\n", PQerrorMessage(dbconn));
+        LOGERR("SELECT failed: %s\n", PQerrorMessage(dbconn));
         return -1;
     }
     return 0;

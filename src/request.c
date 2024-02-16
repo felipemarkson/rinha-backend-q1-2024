@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <math.h>
 #include "request.h"
+#include "log.h"
 
 #include "../picohttpparser/picohttpparser.h"
 #include "../cJSON/cJSON.h"
