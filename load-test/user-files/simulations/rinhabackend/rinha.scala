@@ -112,24 +112,26 @@ class RinhaBackendCrebitosSimulation
     )
   )
 
-  val validacaDebitosConcorrentesNumRequests = 25
-  val validacaDebitosConcorrentesTransacaoes = scenario("validação concorrência transações")
+  val validacaConcorrentesNumRequests = 25
+  val validacaoTransacoesConcorrentes = (tipo: String) =>
+    scenario(s"validação concorrência transações - ${tipo}")
     .exec(
-      http("validações concorrência")
-      .post("/clientes/4/transacoes")
+      http(s"validação concorrência transações - ${tipo}")
+      .post(s"/clientes/1/transacoes")
           .header("content-type", "application/json")
-          .body(StringBody("""{"valor": 1, "tipo": "d", "descricao": "validacao"}"""))
+          .body(StringBody(s"""{"valor": 1, "tipo": "${tipo}", "descricao": "validacao"}"""))
           .check(status.is(200))
     )
-  
-  val validacaDebitosConcorrentesExtrato = scenario("validação concorrência extrato")
+
+  val validacaoTransacoesConcorrentesSaldo = (saldoEsperado: Int) =>
+    scenario(s"validação concorrência saldo - ${saldoEsperado}")
     .exec(
-      http("validações concorrência")
-      .get("/clientes/4/extrato")
+      http(s"validação concorrência saldo - ${saldoEsperado}")
+      .get(s"/clientes/1/extrato")
       .check(
-        jmesPath("saldo.total").ofType[Int].is(validacaDebitosConcorrentesNumRequests * -1)
+        jmesPath("saldo.total").ofType[Int].is(saldoEsperado)
+      )
     )
-  )
 
   val saldosIniciaisClientes = Array(
     Map("id" -> 1, "limite" ->   1000 * 100),
@@ -139,7 +141,14 @@ class RinhaBackendCrebitosSimulation
     Map("id" -> 5, "limite" ->   5000 * 100),
   )
 
-  val criteriosClientes = scenario("validações")
+   val criterioClienteNaoEcontrado = scenario("validação HTTP 404")
+    .exec(
+      http("validação HTTP 404")
+      .get("/clientes/6/extrato")
+      .check(status.is(404))
+    )
+
+  val criteriosClientes = scenario("Testes de funcionalidade")
     .feed(saldosIniciaisClientes)
     .exec(
       /*
@@ -157,13 +166,8 @@ class RinhaBackendCrebitosSimulation
       )
     )
     .exec(
-      http("test_notfound_extrato")
-      .get("/clientes/6/extrato")
-      .check(status.is(404))
-    )
-    .exec(
       http("test_basic_transacao_credit")
-      .post("/clientes/1/transacoes")
+      .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": "toma"}"""))
           .check(
@@ -174,7 +178,7 @@ class RinhaBackendCrebitosSimulation
     )
     .exec(
       http("test_basic_transacao_debit")
-      .post("/clientes/1/transacoes")
+      .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "d", "descricao": "devolve"}"""))
           .check(
@@ -185,7 +189,7 @@ class RinhaBackendCrebitosSimulation
     )
     .exec(
       http("test_basic_extrato_after_transacao")
-      .get("/clientes/1/extrato")
+      .get("/clientes/#{id}/extrato")
       .check(
         jmesPath("ultimas_transacoes[0].descricao").ofType[String].is("devolve"),
         jmesPath("ultimas_transacoes[0].tipo").ofType[String].is("d"),
@@ -197,35 +201,35 @@ class RinhaBackendCrebitosSimulation
     )
     .exec(
       http("test_invalid_transacao_float")
-      .post("/clientes/1/transacoes")
+      .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1.2, "tipo": "d", "descricao": "devolve"}"""))
           .check(status.in(422))
     )
     .exec(
       http("test_invalid_transacao_tipo")
-      .post("/clientes/1/transacoes")
+      .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "x", "descricao": "devolve"}"""))
           .check(status.in(422))
     )
     .exec(
       http("test_invalid_transacao_descricao_max_len")
-      .post("/clientes/1/transacoes")
+      .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": "123456789 e mais um pouco"}"""))
           .check(status.in(422))
     )
     .exec(
       http("test_invalid_transacao_descricao_min_len")
-      .post("/clientes/1/transacoes")
+      .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": ""}"""))
           .check(status.in(422))
     )
     .exec(
       http("test_invalid_transacao_descricao_null")
-      .post("/clientes/1/transacoes")
+      .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": null}"""))
           .check(status.in(422))
@@ -237,28 +241,38 @@ class RinhaBackendCrebitosSimulation
     comportam individualmente.
   */
   setUp(
-    validacaDebitosConcorrentesTransacaoes.inject(
-      atOnceUsers(validacaDebitosConcorrentesNumRequests)
+    validacaoTransacoesConcorrentes("d").inject(
+      atOnceUsers(validacaConcorrentesNumRequests)
     ).andThen(
-      validacaDebitosConcorrentesExtrato.inject(
+      validacaoTransacoesConcorrentesSaldo(validacaConcorrentesNumRequests * -1).inject(
         atOnceUsers(1)
       )
     ).andThen(
-    criteriosClientes.inject(
-      atOnceUsers(1)
-    )
-    .andThen(
-      debitos.inject(
-        rampUsersPerSec(1).to(220).during(2.minutes),
-        constantUsersPerSec(220).during(2.minutes)
+      validacaoTransacoesConcorrentes("c").inject(
+        atOnceUsers(validacaConcorrentesNumRequests)
+      ).andThen(
+        validacaoTransacoesConcorrentesSaldo(0).inject(
+          atOnceUsers(1)
+        )
+      )
+    ).andThen(
+      criteriosClientes.inject(
+        atOnceUsers(saldosIniciaisClientes.length)
       ),
-      creditos.inject(
-        rampUsersPerSec(1).to(110).during(2.minutes),
-        constantUsersPerSec(110).during(2.minutes)
-      ),
-      extratos.inject(
-        rampUsersPerSec(1).to(10).during(2.minutes),
-        constantUsersPerSec(10).during(2.minutes)
+      criterioClienteNaoEcontrado.inject(
+        atOnceUsers(1)
+      ).andThen(
+        debitos.inject(
+          rampUsersPerSec(1).to(512).during(2.minutes),
+          constantUsersPerSec(512).during(2.minutes)
+        ),
+        creditos.inject(
+          rampUsersPerSec(1).to(256).during(2.minutes),
+          constantUsersPerSec(256).during(2.minutes)
+        ),
+        extratos.inject(
+          rampUsersPerSec(1).to(128).during(2.minutes),
+          constantUsersPerSec(128).during(2.minutes)
         )
       )
     )

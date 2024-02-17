@@ -12,8 +12,8 @@
 #define MIN(X,Y) ((X) < (Y) ? (X): (Y))
 
 
-static const char *conn_kws[]  = {"hostaddr", "port",  "dbname",  "user",      "password", "gssencmode", "sslmode", NULL};
-static const char *conn_vals[] = {"0.0.0.0",  "6432",  "user_db", "user_user", "user_pwd", "disable"   , "disable", NULL};
+static const char *conn_kws[]  = {"host",       "port",  "dbname",  "user",      "password", "gssencmode", "sslmode", NULL};
+static const char *conn_vals[] = {"localhost",  "6432",  "user_db", "user_user", "user_pwd", "disable"   , "disable", NULL};
 
 dbconn_t db_connect(void){
     LOG("DB loging in:\n\tHost: %s\n\tPort: %s", conn_vals[0], conn_vals[1]);

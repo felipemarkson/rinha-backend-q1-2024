@@ -9,7 +9,10 @@ _term() {
 trap _term SIGTERM
 
 pgbouncer pgbouncer.ini -d
+sleep 5
+echo "pgbouncer ready!"
 ./backend &
 PID_BIN=$!
+sleep 5
 echo "I'm ready!"
 wait $PID_BIN

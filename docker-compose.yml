@@ -55,8 +55,8 @@ services:
       - rinha
     healthcheck:
       test: curl -s "http://localhost:9999/ping"
-      interval: 1s
-      timeout: 1s
+      interval: 5s
+      timeout: 5s
       retries: 100
 
   api2:
