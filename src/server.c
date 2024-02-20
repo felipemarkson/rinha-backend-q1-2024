@@ -14,9 +14,51 @@ static struct io_uring ring = {0};
 static int server_fd = 0;
 #define REQRES_POOL_SIZE 4096
 static ReqRes REQRES_POOL[REQRES_POOL_SIZE] = {0};
-#define DBCONNS_POOL_SIZE 1024
+#define DBCONNS_POOL_SIZE 75
 static char DBCONNS_USED[DBCONNS_POOL_SIZE] = {0};
 static dbconn_t DBCONNS_POOL[DBCONNS_POOL_SIZE] = {0};
+
+typedef struct queue_item_t {
+    void* next;
+    ReqRes* item;
+} QueueItem;
+QueueItem* first = NULL;
+QueueItem* last = NULL;
+
+void queu_push(ReqRes* reqres){
+    if (first == NULL && last != NULL)
+        FATAL3("UNREACHABLE! first: {%p}, last: {%p}", (void*)first, (void*)last);
+    QueueItem* qitem = calloc(1, sizeof(QueueItem));
+    if (qitem == NULL)
+        FATAL3("%s" ,"MEMERROR");
+    qitem->item = reqres;
+    if (last != NULL)
+        last->next = qitem;
+    last = qitem;
+    if(first == NULL)
+        first = qitem;
+}
+ReqRes* queu_pop(void){
+    if (first == NULL && last != NULL)
+        FATAL3("UNREACHABLE! first: {%p}, last: {%p}", (void*)first, (void*)last);
+    if(first == NULL)
+        return NULL;
+    ReqRes* ret = first->item;
+    QueueItem* new_first = first->next;
+    free(first);
+    first = new_first;
+    if (first == NULL)
+        last = NULL;
+    else
+        last = first->next;
+    return ret;
+}
+
+void free_queu(){
+    while (queu_pop()) continue;
+}
+
+
 
 void init_dbconns_arena(void){
     for (int i = 0; i < DBCONNS_POOL_SIZE; i++){
@@ -33,17 +75,16 @@ void deinit_dbconns_arena(void){
 dbconn_t get_dbconn(void) {
     for (int i = 0; i < DBCONNS_POOL_SIZE; i++){
         if (DBCONNS_USED[i] == 0){
-            DBCONNS_USED[i] = 1;
+            DBCONNS_USED[i] = (char)1;
             return DBCONNS_POOL[i];
         }
     }
-    LOGERR("%s","There is no DB connection available");
     return NULL;
 }
 void release_dbconn(dbconn_t dbconn){
     for (int i = 0; i < DBCONNS_POOL_SIZE; i++){
         if (dbconn == DBCONNS_POOL[i]){
-            DBCONNS_USED[i] = 0;
+            DBCONNS_USED[i] = (char)0;
             return;
         }
     }
@@ -149,27 +190,45 @@ static int push_close_connection(ReqRes *req){
 static int push_db_responding(ReqRes *req){
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     req->last_event = EVENT_DB_RESPONDING;
-    int db_fd = db_socket(req->db_conn);
-    if(db_fd < 0) {
+    int db_fd = db_socket(req->dbconn);
+    if(db_fd < 0)
         FATAL3("%s", "ERROR: Invalid DB file descriptor!");
-        return -1;
-    }
+
     io_uring_prep_read(sqe, db_fd, NULL, 0, 0); // We do not read. it is done by the PG.
     io_uring_sqe_set_data(sqe, req);
     int ret = 0;
-    if((ret = io_uring_submit(&ring)) < 0){
+    if((ret = io_uring_submit(&ring)) < 0)
         FATAL3("ERROR: Could not read the db response: %s\n", strerror(-ret));
-        return -1;
-    }
     return 0;
 }
 
-void server_loop(Controller handler) {
+void queu_dispatch(){
+    dbconn_t dbconn = get_dbconn();
+    while (dbconn != NULL){
+        ReqRes* reqres = queu_pop();
+        if (reqres == NULL)
+            break;
+        reqres->dbconn = dbconn;
+        reqres->db_request_sender(reqres);
+        if (reqres->db_response_handler == NULL) {
+            release_dbconn(dbconn);
+            push_writing(reqres);
+            continue;
+        }
+        push_db_responding(reqres);
+        dbconn = get_dbconn();
+    }
+    if (dbconn != NULL)
+        release_dbconn(dbconn);
+}
+
+void server_loop(Controller handler, int port) {
     if (push_accepting(NULL) < 0)
         exit(1);
 
-    printf("Listening in %d\n", DEFAULT_SERVER_PORT);
+    printf("Listening in %d\n", port);
     while (1) {
+        queu_dispatch();
         int ret;
         struct io_uring_cqe *cqe = NULL;
         ret = io_uring_wait_cqe(&ring, &cqe);
@@ -195,24 +254,19 @@ void server_loop(Controller handler) {
             }
             case EVENT_READING: {
                 LOG("%s", "The server had read data from the connection!\n");
-                req->db_conn = get_dbconn();
-                if(req->db_conn == NULL){
-                    SET_STATIC_RESPONSE(req->buffer, INTERNALERROR);
-                    push_writing(req);
-                    break;
-                }
                 handler(req);
-                if (req->db_handler == NULL){
-                    LOG("%s", "Handler do not requested DB...\n");
+                if (req->db_request_sender == NULL)
+                {
+                    LOG("%s", "no DB requested...\n");
                     push_writing(req);
                 }
                 else
-                    push_db_responding(req);
+                    queu_push(req);
                 break;
             }
             case EVENT_DB_RESPONDING: {
-                req->db_handler(req);
-                release_dbconn(req->db_conn);
+                req->db_response_handler(req);
+                release_dbconn(req->dbconn);
                 push_writing(req);
                 break;
             }
@@ -248,16 +302,17 @@ static void sigint_handler(int signo) {
     printf("Exiting!\n");
     io_uring_queue_exit(&ring);
     deinit_dbconns_arena();
+    free_queu();
     exit(0);
 }
 
-int server(Controller handler) {
+int server(Controller handler, int port) {
     init_dbconns_arena();
-    init_server_fd(DEFAULT_SERVER_PORT);
+    init_server_fd(port);
     if (signal(SIGINT, sigint_handler) == SIG_ERR) FATAL();
     int ret;
     if ((ret = io_uring_queue_init(4096, &ring, 0)) != 0) FATAL2(ret);
-    server_loop(handler);
+    server_loop(handler, port);
     sigint_handler(0);
     return 0;
 }

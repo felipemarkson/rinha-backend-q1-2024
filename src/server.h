@@ -15,7 +15,7 @@ typedef enum event_t{
     EVENT_DB_RESPONDING,
 } Event;
 
-typedef void (*DBResponseHandler)(void* reqres);
+typedef void (*DBFunc)(void* reqres);
 
 typedef struct req_res_t {
     struct io_uring *ring;
@@ -24,12 +24,14 @@ typedef struct req_res_t {
     int client_fd;
     struct sockaddr_in client_addr;
     socklen_t client_addr_len;
-    dbconn_t db_conn;
-    DBResponseHandler db_handler;
+    DBFunc db_request_sender;
+    DBFunc db_response_handler;
+    void* db_data;
+    dbconn_t dbconn;
     int to_exit;
 } ReqRes;
 
 typedef void (*Controller)(ReqRes*);
 
-int server(Controller handler);
+int server(Controller handler, int port);
 #endif

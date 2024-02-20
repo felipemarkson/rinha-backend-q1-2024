@@ -2,64 +2,14 @@
 #include "request.h"
 #include "response.h"
 #include "server.h"
+#include "log.h"
 #include <stdio.h>
-
-#ifndef DB_ASYNC
-void transacao(ReqRes* reqres, RequestData* reqdata) {
-    Transacao transacao = {0};
-    char *buffer = reqres->buffer;
-    switch (parse_transacoes(buffer, reqdata, &transacao)) {
-        case PARSER_INVALID: {
-            SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
-            return;
-        }
-        case PARSER_MEMORY: {
-            SET_STATIC_RESPONSE(buffer, INTERNALERROR);
-            return;
-        }
-        case PARSER_OK:
-            break;
-        default: {
-            SET_STATIC_RESPONSE(buffer, INTERNALERROR);
-            return;
-        }
-    }
-    // {"limite": 100000, "saldo": -9098}
-    char db_buffer[50] = {0};
-    int n_writed = db_push_transacao(reqres->db_conn, &transacao, 50, db_buffer);
-    switch (n_writed) {
-        case TRANSACAO_DB_ERROR: {
-            SET_STATIC_RESPONSE(buffer, INTERNALERROR);
-            return;
-        }
-        case TRANSACAO_INVALID: {
-            SET_STATIC_RESPONSE(buffer, UNPROCESSABLE);
-            return;
-        }
-        default:
-            break;
-    }
-    if (n_writed < 0) {
-        SET_STATIC_RESPONSE(buffer, INTERNALERROR);
-        return;
-    }
-    snprintf(buffer, MAX_REQ_RESP_SIZE, OK_TRANSACAO, n_writed + 1, db_buffer);
-    return;
-}
-
-void extrato(ReqRes* reqres, RequestData* reqdata) {
-    char db_buffer[2000] = {0};
-    char *buffer = reqres->buffer;
-    int n_writed = db_get_extrato(reqres->db_conn, reqdata->id, 2000-1, db_buffer);
-    snprintf(buffer, MAX_REQ_RESP_SIZE, OK_EXTRATO, n_writed + 1, db_buffer);
-    return;
-}
-#else
+#include <stdlib.h>
 
 void end_transacao_async(void* _reqres){
     ReqRes* reqres = (ReqRes*)_reqres;
     char db_buffer[50] = {0};
-    int n_writed = db_end_transacao(reqres->db_conn, 50, db_buffer);
+    int n_writed = db_end_transacao(reqres->dbconn, 50, db_buffer);
     switch (n_writed) {
         case TRANSACAO_DB_ERROR: {
             SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
@@ -79,9 +29,13 @@ void end_transacao_async(void* _reqres){
     snprintf(reqres->buffer, MAX_REQ_RESP_SIZE, OK_TRANSACAO, n_writed + 1, db_buffer);
     return;
 }
-void start_transacao_async(ReqRes* reqres, const RequestData* reqdata) {
+void start_transacao_async(void* _reqres) {
+    ReqRes* reqres = _reqres;
     Transacao transacao = {0};
-    switch (parse_transacoes(reqres->buffer, reqdata, &transacao)) {
+    RequestData reqdata = {0};
+    memcpy(&reqdata, reqres->db_data, sizeof(RequestData));
+    free(reqres->db_data);
+    switch (parse_transacoes(reqres->buffer, &reqdata, &transacao)) {
         case PARSER_INVALID: {
             SET_STATIC_RESPONSE(reqres->buffer, UNPROCESSABLE);
             return;
@@ -97,17 +51,17 @@ void start_transacao_async(ReqRes* reqres, const RequestData* reqdata) {
             return;
         }
     }
-    if (db_start_transacao(reqres->db_conn, &transacao) < 0){
+    if (db_start_transacao(reqres->dbconn, &transacao) < 0){
         SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
         return;   
     }
-    reqres->db_handler = end_transacao_async;
+    reqres->db_response_handler = end_transacao_async;
 }
 
 void end_extrato_async(void* _reqres){
     ReqRes* reqres = (ReqRes*)_reqres;
     char db_buffer[2000] = {0};
-    int n_writed = db_end_extrato(reqres->db_conn, 2000-1, db_buffer);
+    int n_writed = db_end_extrato(reqres->dbconn, 2000-1, db_buffer);
     if (n_writed < 0) {
         SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
         return;
@@ -116,80 +70,93 @@ void end_extrato_async(void* _reqres){
     return;
 }
 
-void start_extrato_async(ReqRes* reqres, const RequestData* reqdata) {
-    if (db_start_extrato(reqres->db_conn, reqdata->id) < 0){
+void start_extrato_async(void* _reqres) {
+    ReqRes* reqres = _reqres;
+    RequestData reqdata = {0};
+    memcpy(&reqdata, reqres->db_data, sizeof(RequestData));
+    free(reqres->db_data);
+    if (db_start_extrato(reqres->dbconn, reqdata.id) < 0){
         SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
         return;   
     }
-    reqres->db_handler = end_extrato_async;
+    reqres->db_response_handler = end_extrato_async;
 }
-#endif
 
 void controller(ReqRes* reqres) {
-    RequestData reqdata = {0};
-    switch ((request_parser(reqres->buffer, &reqdata))) {
+    RequestData* reqdata = calloc(1, sizeof(RequestData));
+    if (reqdata == NULL){
+        SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
+        return;
+    }
+    switch ((request_parser(reqres->buffer, reqdata))) {
         case PARSER_MEMORY: {
             SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
+            free(reqdata);
             return;
         }
         case PARSER_INVALID: {
             SET_STATIC_RESPONSE(reqres->buffer, UNPROCESSABLE);
+            free(reqdata);
             return;
         }
         case PARSER_OK:
             break;
         default: {
             SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
+            free(reqdata);
             return;
         }
     }
-    if (reqdata.uri == URI_EXIT) {  // Circuit breaker
+    if (reqdata->uri == URI_EXIT) {  // Circuit breaker
         SET_STATIC_RESPONSE(reqres->buffer, OK_EXIT);
         reqres->to_exit = 1;
+        free(reqdata);
         return;
     }
-    if (reqdata.uri == URI_PING){
+    if (reqdata->uri == URI_PING){
         SET_STATIC_RESPONSE(reqres->buffer, OK_PING);
+        free(reqdata);
         return;
     }
 
-    if (reqdata.id >= 6) {
+    if (reqdata->id >= 6) {
         SET_STATIC_RESPONSE(reqres->buffer, NOTFOUND);
+        free(reqdata);
         return;
     }
 
-    int good_request = (reqdata.method == GET && reqdata.uri == URI_EXTRATO) ||
-                       (reqdata.method == POST && reqdata.uri == URI_TRANSACAO);
+    int good_request = (reqdata->method == GET && reqdata->uri == URI_EXTRATO) ||
+                       (reqdata->method == POST && reqdata->uri == URI_TRANSACAO);
     if (!good_request) {
         SET_STATIC_RESPONSE(reqres->buffer, BADREQUEST);
+        free(reqdata);
         return;
     }
 
-#ifndef DB_ASYNC
-    if (reqdata.method == GET && reqdata.uri == URI_EXTRATO) {
-        extrato(reqres->buffer, &reqdata);
+    reqres->db_data = reqdata;
+    if (reqdata->method == GET && reqdata->uri == URI_EXTRATO) {
+        reqres->db_request_sender = start_extrato_async;
+        reqres->db_data = reqdata;
         return;
     }
-    if (reqdata.method == POST && reqdata.uri == URI_TRANSACAO) {
-        transacao(reqres->buffer, &reqdata);
+    if (reqdata->method == POST && reqdata->uri == URI_TRANSACAO) {
+        reqres->db_request_sender = start_transacao_async;
+        reqres->db_data = reqdata;
         return;
     }
-#else
-    if (reqdata.method == GET && reqdata.uri == URI_EXTRATO) {
-        start_extrato_async(reqres, &reqdata);
-        return;
-    }
-    if (reqdata.method == POST && reqdata.uri == URI_TRANSACAO) {
-        start_transacao_async(reqres, &reqdata);
-        return;
-    }
-#endif
     SET_STATIC_RESPONSE(reqres->buffer, INTERNALERROR);
 }
 
 int main(int argc, char const* argv[]) {
-    (void)argc;
-    (void)argv;
-    server(controller);
+
+    if (argc != 2)
+        FATAL3("%s","You need to provide only the port.");
+
+    char* endptr = NULL;
+    int port = strtol(argv[1], &endptr, 10);
+    if (*endptr != '\0' || port <= 0)
+        FATAL3("Invalid port %s", argv[1]);
+
+    server(controller, port);
     return 0;
 }

@@ -10,7 +10,7 @@ import io.gatling.core.Predef._
 import io.gatling.http.Predef._
 
 
-class LocalTest
+class RinhaBackendCrebitosSimulation
   extends Simulation {
 
   def randomClienteId() = Random.between(1, 5 + 1)
@@ -56,7 +56,6 @@ class LocalTest
   val httpProtocol = http
     .baseUrl("http://localhost:9999")
     .userAgentHeader("Agente do Caos - 2024/Q1")
-    .shareConnections
 
   val debitos = scenario("débitos")
     .exec {s =>
@@ -116,17 +115,17 @@ class LocalTest
   val validacaoTransacoesConcorrentes = (tipo: String) =>
     scenario(s"validação concorrência transações - ${tipo}")
     .exec(
-      http(s"validação concorrência transações - ${tipo}")
+      http("validações")
       .post(s"/clientes/1/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "${tipo}", "descricao": "validacao"}"""))
           .check(status.is(200))
     )
-
+  
   val validacaoTransacoesConcorrentesSaldo = (saldoEsperado: Int) =>
     scenario(s"validação concorrência saldo - ${saldoEsperado}")
     .exec(
-      http(s"validação concorrência saldo - ${saldoEsperado}")
+      http("validações")
       .get(s"/clientes/1/extrato")
       .check(
         jmesPath("saldo.total").ofType[Int].is(saldoEsperado)
@@ -141,14 +140,14 @@ class LocalTest
     Map("id" -> 5, "limite" ->   5000 * 100),
   )
 
-   val criterioClienteNaoEcontrado = scenario("validação HTTP 404")
+  val criterioClienteNaoEcontrado = scenario("validação HTTP 404")
     .exec(
-      http("validação HTTP 404")
+      http("validações")
       .get("/clientes/6/extrato")
       .check(status.is(404))
     )
 
-  val criteriosClientes = scenario("Testes de funcionalidade")
+  val criteriosClientes = scenario("validações")
     .feed(saldosIniciaisClientes)
     .exec(
       /*
@@ -157,7 +156,7 @@ class LocalTest
         O lado negativo é que, em caso de falha, pode não ser possível
         saber sua causa exata.
       */ 
-      http("test_basic_extrato")
+      http("validações")
       .get("/clientes/#{id}/extrato")
       .check(
         status.is(200),
@@ -166,7 +165,7 @@ class LocalTest
       )
     )
     .exec(
-      http("test_basic_transacao_credit")
+      http("validações")
       .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": "toma"}"""))
@@ -177,7 +176,7 @@ class LocalTest
           )
     )
     .exec(
-      http("test_basic_transacao_debit")
+      http("validações")
       .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "d", "descricao": "devolve"}"""))
@@ -188,7 +187,7 @@ class LocalTest
           )
     )
     .exec(
-      http("test_basic_extrato_after_transacao")
+      http("validações")
       .get("/clientes/#{id}/extrato")
       .check(
         jmesPath("ultimas_transacoes[0].descricao").ofType[String].is("devolve"),
@@ -199,36 +198,79 @@ class LocalTest
         jmesPath("ultimas_transacoes[1].valor").ofType[Int].is("1")
       )
     )
-    .exec(
-      http("test_invalid_transacao_float")
+    .exec( // Consistencia do extrato
+      http("validações")
+      .post("/clientes/#{id}/transacoes")
+          .header("content-type", "application/json")
+          .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": "danada"}"""))
+          .check(
+            status.in(200),
+            jmesPath("saldo").saveAs("saldo"),
+            jmesPath("limite").saveAs("limite")
+          )
+          .resources(
+            // 5 consultas simultâneas ao extrato para verificar consistência
+            http("validações").get("/clientes/#{id}/extrato").check(
+              jmesPath("ultimas_transacoes[0].descricao").ofType[String].is("danada"),
+              jmesPath("ultimas_transacoes[0].tipo").ofType[String].is("c"),
+              jmesPath("ultimas_transacoes[0].valor").ofType[Int].is("1"),
+              jmesPath("saldo.limite").ofType[String].is("#{limite}"),
+              jmesPath("saldo.total").ofType[String].is("#{saldo}")
+            ),
+            http("validações").get("/clientes/#{id}/extrato").check(
+              jmesPath("ultimas_transacoes[0].descricao").ofType[String].is("danada"),
+              jmesPath("ultimas_transacoes[0].tipo").ofType[String].is("c"),
+              jmesPath("ultimas_transacoes[0].valor").ofType[Int].is("1"),
+              jmesPath("saldo.limite").ofType[String].is("#{limite}"),
+              jmesPath("saldo.total").ofType[String].is("#{saldo}")
+            ),
+            http("validações").get("/clientes/#{id}/extrato").check(
+              jmesPath("ultimas_transacoes[0].descricao").ofType[String].is("danada"),
+              jmesPath("ultimas_transacoes[0].tipo").ofType[String].is("c"),
+              jmesPath("ultimas_transacoes[0].valor").ofType[Int].is("1"),
+              jmesPath("saldo.limite").ofType[String].is("#{limite}"),
+              jmesPath("saldo.total").ofType[String].is("#{saldo}")
+            ),
+            http("validações").get("/clientes/#{id}/extrato").check(
+              jmesPath("ultimas_transacoes[0].descricao").ofType[String].is("danada"),
+              jmesPath("ultimas_transacoes[0].tipo").ofType[String].is("c"),
+              jmesPath("ultimas_transacoes[0].valor").ofType[Int].is("1"),
+              jmesPath("saldo.limite").ofType[String].is("#{limite}"),
+              jmesPath("saldo.total").ofType[String].is("#{saldo}")
+            )
+        )
+    )
+  
+  .exec(
+      http("validações")
       .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1.2, "tipo": "d", "descricao": "devolve"}"""))
-          .check(status.in(422))
+          .check(status.in(422, 400))
     )
     .exec(
-      http("test_invalid_transacao_tipo")
+      http("validações")
       .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "x", "descricao": "devolve"}"""))
           .check(status.in(422))
     )
     .exec(
-      http("test_invalid_transacao_descricao_max_len")
+      http("validações")
       .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": "123456789 e mais um pouco"}"""))
           .check(status.in(422))
     )
     .exec(
-      http("test_invalid_transacao_descricao_min_len")
+      http("validações")
       .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": ""}"""))
           .check(status.in(422))
     )
     .exec(
-      http("test_invalid_transacao_descricao_null")
+      http("validações")
       .post("/clientes/#{id}/transacoes")
           .header("content-type", "application/json")
           .body(StringBody(s"""{"valor": 1, "tipo": "c", "descricao": null}"""))
@@ -255,24 +297,27 @@ class LocalTest
           atOnceUsers(1)
         )
       )
-    ).andThen(
+    )
+    .andThen(
       criteriosClientes.inject(
         atOnceUsers(saldosIniciaisClientes.length)
-      ),
-      criterioClienteNaoEcontrado.inject(
-        atOnceUsers(1)
       ).andThen(
-        debitos.inject(
-          rampUsersPerSec(1).to(512).during(2.minutes),
-          constantUsersPerSec(512).during(2.minutes)
-        ),
-        creditos.inject(
-          rampUsersPerSec(1).to(256).during(2.minutes),
-          constantUsersPerSec(256).during(2.minutes)
-        ),
-        extratos.inject(
-          rampUsersPerSec(1).to(128).during(2.minutes),
-          constantUsersPerSec(128).during(2.minutes)
+        criterioClienteNaoEcontrado.inject(
+          atOnceUsers(1)
+        )
+        .andThen(
+          debitos.inject(
+            rampUsersPerSec(1).to(220).during(2.minutes),
+            constantUsersPerSec(220).during(2.minutes)
+          ),
+          creditos.inject(
+            rampUsersPerSec(1).to(110).during(2.minutes),
+            constantUsersPerSec(110).during(2.minutes)
+          ),
+          extratos.inject(
+            rampUsersPerSec(1).to(10).during(2.minutes),
+            constantUsersPerSec(10).during(2.minutes)
+          )
         )
       )
     )

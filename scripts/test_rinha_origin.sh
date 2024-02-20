@@ -1,13 +1,13 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
 # Use este script para executar testes locais
 
 RESULTS_WORKSPACE="$(pwd)/load-test/user-files/results"
-GATLING_BIN_DIR="$(pwd)/gatling/bin"
+GATLING_BIN_DIR=$(pwd)/gatling/bin
 GATLING_WORKSPACE="$(pwd)/load-test/user-files"
 
 runGatling() {
-    sh $GATLING_BIN_DIR/gatling.sh -rm local -s LocalTest \
+    sh $GATLING_BIN_DIR/gatling.sh -rm local -s RinhaBackendCrebitosSimulation \
         -rd "Rinha de Backend - 2024/Q1: Crébito" \
         -rf $RESULTS_WORKSPACE \
         -sf "$GATLING_WORKSPACE/simulations"
